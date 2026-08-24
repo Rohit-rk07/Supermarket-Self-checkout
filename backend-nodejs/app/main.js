@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
 import connectDB from './database.js';
 import productRoutes from './routes/productRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
@@ -23,10 +24,8 @@ if (missingEnvVars.length > 0) {
     process.exit(1);
 }
 
-// Connect to MongoDB
-connectDB();
-
 const app = express();
+let isReady = false;
 
 // Security middleware
 app.use(helmet());
@@ -43,7 +42,7 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // CORS middleware
-const defaultOrigins = ['http://localhost:5173'];
+const defaultOrigins = process.env.NODE_ENV === 'production' ? [] : ['http://localhost:5173'];
 const envOrigins = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
 
@@ -61,8 +60,8 @@ app.options('*', cors());
 app.use(httpLogger);
 
 // Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // API Routes
 app.use('/api/v1/scan', productRoutes);
@@ -81,6 +80,14 @@ app.get('/', (req, res) => {
     status: "healthy",
     timestamp: new Date().toISOString()
   });
+});
+
+app.get('/health/ready', (req, res) => {
+  if (!isReady) {
+    return res.status(503).json({ status: 'not_ready' });
+  }
+
+  res.json({ status: 'ready' });
 });
 
 // API info endpoint
@@ -120,16 +127,42 @@ app.get('/api', (req, res) => {
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
-app.listen(PORT, () => {
-  logger.info('Server started successfully', {
-    port: PORT,
-    environment: process.env.NODE_ENV || 'development',
-    apiDocs: `http://localhost:${PORT}/api`,
-    healthCheck: `http://localhost:${PORT}/`
+export const startServer = async () => {
+  await connectDB();
+  isReady = true;
+
+  const server = app.listen(PORT, () => {
+    logger.info('Server started successfully', {
+      port: PORT,
+      environment: process.env.NODE_ENV || 'development',
+      apiDocs: `http://localhost:${PORT}/api`,
+      healthCheck: `http://localhost:${PORT}/`
+    });
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`📚 API docs available at http://localhost:${PORT}/api`);
+    console.log(`🏥 Health check at http://localhost:${PORT}/`);
   });
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📚 API docs available at http://localhost:${PORT}/api`);
-  console.log(`🏥 Health check at http://localhost:${PORT}/`);
-});
+
+  const shutdown = async (signal) => {
+    logger.info(`Received ${signal}, shutting down`);
+    isReady = false;
+    server.close(async () => {
+      const mongoose = await import('mongoose');
+      await mongoose.default.connection.close();
+      process.exit(0);
+    });
+  };
+
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
+  return server;
+};
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  startServer().catch((error) => {
+    logger.error('Server startup failed', { error: error.message });
+    process.exit(1);
+  });
+}

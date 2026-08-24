@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { appendFile } from 'fs/promises';
 import path from 'path';
 
 // Create logs directory if it doesn't exist
@@ -51,7 +52,9 @@ class Logger {
     writeToFile(message) {
         if (this.logToFile) {
             try {
-                fs.appendFileSync(this.logFile, message);
+                appendFile(this.logFile, message).catch((error) => {
+                    console.error('Failed to write to log file:', error);
+                });
             } catch (error) {
                 console.error('Failed to write to log file:', error);
             }

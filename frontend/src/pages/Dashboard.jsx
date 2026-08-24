@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { 
   Container, 
   Box, 
@@ -8,8 +8,6 @@ import {
   Grid, 
   Fab, 
   Badge,
-  useTheme,
-  useMediaQuery,
   Paper,
   Avatar,
   IconButton
@@ -21,21 +19,18 @@ import {
   Person as PersonIcon,
   Inventory as InventoryIcon,
   TrendingUp as TrendingIcon,
-  Speed as SpeedIcon
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import BarcodeScanner from "../components/BarcodeScanner";
 import { useCart } from "../context/CartContext";
-import { colors, spacing } from "../theme/theme";
+
+const BarcodeScanner = lazy(() => import("../components/BarcodeScanner"));
 
 const Dashboard = () => {
   const [scannerOpen, setScannerOpen] = useState(false);
   const { cart, addToCart, totalItems, subtotal } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   const fetchProduct = async (barcode) => {
     try {
@@ -320,7 +315,11 @@ const Dashboard = () => {
         <ScanIcon />
       </Fab>
 
-      {scannerOpen && <BarcodeScanner onScan={fetchProduct} closeScanner={() => setScannerOpen(false)} />}
+      {scannerOpen && (
+        <Suspense fallback={null}>
+          <BarcodeScanner onScan={fetchProduct} closeScanner={() => setScannerOpen(false)} />
+        </Suspense>
+      )}
     </Box>
   );
 };

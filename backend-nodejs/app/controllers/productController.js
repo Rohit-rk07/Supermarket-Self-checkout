@@ -7,7 +7,7 @@ export const getProductByBarcode = async (req, res, next) => {
     const { barcode } = req.params;
     
     logger.dbLog('FIND', 'products', { barcode });
-    const product = await Product.findOne({ barcode });
+    const product = await Product.findOne({ barcode, isActive: true }).lean();
     
     if (!product) {
       logger.warn('Product not found', { barcode });
@@ -71,12 +71,16 @@ export const getAllProducts = async (req, res, next) => {
     const skip = (page - 1) * limit;
     
     logger.dbLog('FIND_ALL', 'products', { page, limit });
-    const products = await Product.find({ isActive: true })
-      .skip(skip)
-      .limit(limit)
-      .sort({ createdAt: -1 });
-    
-    const total = await Product.countDocuments({ isActive: true });
+    const activeProductsQuery = { isActive: true };
+    const [products, total] = await Promise.all([
+      Product.find(activeProductsQuery)
+        .select('barcode name price category stock createdAt')
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 })
+        .lean(),
+      Product.countDocuments(activeProductsQuery)
+    ]);
     
     logger.info('Products retrieved', { count: products.length, total });
     res.json({

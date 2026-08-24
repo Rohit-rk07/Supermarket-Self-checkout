@@ -29,8 +29,12 @@ export const createOrder = async (req, res) => {
     const orderItems = [];
     let total = 0;
 
+    const barcodes = [...new Set(items.map(item => item.barcode))];
+    const products = await Product.find({ barcode: { $in: barcodes }, isActive: true }).lean();
+    const productsByBarcode = new Map(products.map(product => [product.barcode, product]));
+
     for (const item of items) {
-      const product = await Product.findOne({ barcode: item.barcode });
+      const product = productsByBarcode.get(item.barcode);
       if (!product) {
         return res.status(404).json({
           success: false,
@@ -106,16 +110,21 @@ export const getUserOrders = async (req, res) => {
 
     console.log('🔍 Fetching orders for userId:', userId, 'with query:', query);
 
-    const orders = await Order.find(query)
+    const [orders, total] = await Promise.all([
+      Order.find(query)
       .populate('items.productId', 'name price category')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
-      .skip((page - 1) * limit);
+      .skip((page - 1) * limit)
+      .lean(),
+      Order.countDocuments(query)
+    ]);
 
     console.log('📦 Found orders:', orders.length);
 
     // Update order statuses based on age for all users
-    const updatedOrders = await Promise.all(orders.map(async (order) => {
+    const statusUpdates = [];
+    const updatedOrders = orders.map((order) => {
       const orderAge = Date.now() - order.createdAt.getTime();
       const hoursOld = orderAge / (1000 * 60 * 60);
       
@@ -130,15 +139,22 @@ export const getUserOrders = async (req, res) => {
         }
         
         if (newStatus !== order.status) {
-          await Order.findByIdAndUpdate(order._id, { status: newStatus });
           order.status = newStatus;
+          statusUpdates.push({
+            updateOne: {
+              filter: { _id: order._id, status: 'pending' },
+              update: { $set: { status: newStatus } }
+            }
+          });
         }
       }
       
       return order;
-    }));
+    });
 
-    const total = await Order.countDocuments(query);
+    if (statusUpdates.length > 0) {
+      await Order.bulkWrite(statusUpdates, { ordered: false });
+    }
 
     res.json({
       success: true,
