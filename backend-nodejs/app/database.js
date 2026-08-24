@@ -7,11 +7,16 @@ const RETRY_DELAY = 5000; // 5 seconds
 const connectDB = async () => {
   const DATABASE_URL = process.env.MONGODB_URI || "mongodb://localhost:27017/supermarket-checkout";
   
+  // Ensure database name is specified in connection string
+  const DB_NAME = process.env.MONGODB_DB_NAME || "supermarket-checkout";
+  
   while (connectionRetries < MAX_RETRIES) {
     try {
       console.log(`🔄 Attempting MongoDB connection (attempt ${connectionRetries + 1}/${MAX_RETRIES})`);
+      console.log(`🎯 Target Database: ${DB_NAME}`);
       
       await mongoose.connect(DATABASE_URL, {
+        dbName: DB_NAME, // Explicitly set database name
         serverSelectionTimeoutMS: Number(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS) || 30000,
         maxPoolSize: Number(process.env.MONGODB_MAX_POOL_SIZE) || 50,
         minPoolSize: Number(process.env.MONGODB_MIN_POOL_SIZE) || 5,

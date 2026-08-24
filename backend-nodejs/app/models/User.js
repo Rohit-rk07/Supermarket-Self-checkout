@@ -50,7 +50,6 @@ userSchema.index({ role: 1 });
 userSchema.index({ isActive: 1 });
 userSchema.index({ createdAt: -1 });
 // Compound indexes for common query patterns
-userSchema.index({ phoneNumber: 1 }, { unique: true });
 userSchema.index({ role: 1, isActive: 1 });
 userSchema.index({ isPhoneVerified: 1, isActive: 1 });
 

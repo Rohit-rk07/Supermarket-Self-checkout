@@ -44,7 +44,6 @@ productSchema.index({ name: 1 });
 productSchema.index({ category: 1 });
 productSchema.index({ isActive: 1, createdAt: -1 });
 // Compound indexes for common query patterns
-productSchema.index({ barcode: 1 }, { unique: true });
 productSchema.index({ category: 1, isActive: 1 });
 productSchema.index({ name: 1, isActive: 1 });
 
