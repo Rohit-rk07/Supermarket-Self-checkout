@@ -96,8 +96,14 @@ const orderSchema = new mongoose.Schema({
 // Indexes
 orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ status: 1 });
-  orderSchema.index({ paymentStatus: 1 });
+orderSchema.index({ paymentStatus: 1 });
 orderSchema.index({ createdAt: -1 });
+// Compound indexes for common query patterns
+orderSchema.index({ userId: 1, status: 1, createdAt: -1 });
+orderSchema.index({ userPhone: 1, createdAt: -1 });
+orderSchema.index({ orderNumber: 1 }, { unique: true });
+orderSchema.index({ paymentId: 1 });
+orderSchema.index({ status: 1, paymentStatus: 1 });
 
 // Generate order number
 orderSchema.pre('save', function(next) {

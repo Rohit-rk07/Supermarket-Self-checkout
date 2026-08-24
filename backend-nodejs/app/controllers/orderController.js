@@ -112,6 +112,7 @@ export const getUserOrders = async (req, res) => {
 
     const [orders, total] = await Promise.all([
       Order.find(query)
+      .select('orderNumber total status paymentStatus paymentMethod items createdAt')
       .populate('items.productId', 'name price category')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
@@ -297,6 +298,7 @@ export const getAllOrders = async (req, res) => {
     if (paymentStatus) query.paymentStatus = paymentStatus;
 
     const orders = await Order.find(query)
+      .select('orderNumber total status paymentStatus userPhone userName items createdAt')
       .populate('userId', 'name phoneNumber')
       .populate('items.productId', 'name price category')
       .sort({ createdAt: -1 })
@@ -340,6 +342,7 @@ export const getOrderStats = async (req, res) => {
     ]);
 
     const recentOrders = await Order.find()
+      .select('orderNumber total status userPhone userName createdAt')
       .populate('userId', 'name phoneNumber')
       .sort({ createdAt: -1 })
       .limit(5);
