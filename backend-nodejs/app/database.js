@@ -1,27 +1,47 @@
 import mongoose from 'mongoose';
 
+let connectionRetries = 0;
+const MAX_RETRIES = 5;
+const RETRY_DELAY = 5000; // 5 seconds
+
 const connectDB = async () => {
-  try {
-    const DATABASE_URL = process.env.MONGODB_URI || "mongodb://localhost:27017/supermarket-checkout";
-    await mongoose.connect(DATABASE_URL, {
-      serverSelectionTimeoutMS: Number(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS) || 30000,
-      maxPoolSize: Number(process.env.MONGODB_MAX_POOL_SIZE) || 50,
-      minPoolSize: Number(process.env.MONGODB_MIN_POOL_SIZE) || 5,
-      maxIdleTimeMS: 30000,
-      socketTimeoutMS: 45000,
-      connectTimeoutMS: 10000,
-      retryWrites: true,
-      retryReads: true
-    });
-    console.log(`🌐 Host: ${mongoose.connection.host}`);
-    console.log(`🧭 DB:   ${mongoose.connection.name}`);
-    console.log('✅ MongoDB Connected Successfully');
-    console.log(`📊 Database: ${mongoose.connection.name}`);
-  } catch (error) {
-    console.error('❌ Database connection failed:', error.message);
-    console.log('💡 Make sure MongoDB is running on your system');
-    console.log('💡 Try: mongod --dbpath C:\\data\\db');
-    throw error;
+  const DATABASE_URL = process.env.MONGODB_URI || "mongodb://localhost:27017/supermarket-checkout";
+  
+  while (connectionRetries < MAX_RETRIES) {
+    try {
+      console.log(`🔄 Attempting MongoDB connection (attempt ${connectionRetries + 1}/${MAX_RETRIES})`);
+      
+      await mongoose.connect(DATABASE_URL, {
+        serverSelectionTimeoutMS: Number(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS) || 30000,
+        maxPoolSize: Number(process.env.MONGODB_MAX_POOL_SIZE) || 50,
+        minPoolSize: Number(process.env.MONGODB_MIN_POOL_SIZE) || 5,
+        maxIdleTimeMS: 30000,
+        socketTimeoutMS: 45000,
+        connectTimeoutMS: 10000,
+        retryWrites: true,
+        retryReads: true
+      });
+      
+      console.log(`🌐 Host: ${mongoose.connection.host}`);
+      console.log(`🧭 DB:   ${mongoose.connection.name}`);
+      console.log('✅ MongoDB Connected Successfully');
+      console.log(`📊 Database: ${mongoose.connection.name}`);
+      connectionRetries = 0; // Reset on success
+      return true;
+    } catch (error) {
+      connectionRetries++;
+      console.error(`❌ Database connection attempt ${connectionRetries} failed:`, error.message);
+      
+      if (connectionRetries >= MAX_RETRIES) {
+        console.error('❌ Max connection retries reached. Database connection failed.');
+        console.log('💡 Make sure MongoDB is running on your system');
+        console.log('💡 Try: mongod --dbpath C:\\data\\db');
+        throw error;
+      }
+      
+      console.log(`⏳ Retrying in ${RETRY_DELAY / 1000} seconds...`);
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+    }
   }
 };
 
@@ -36,6 +56,13 @@ mongoose.connection.on('error', (err) => {
 
 mongoose.connection.on('disconnected', () => {
   console.log('🔌 Mongoose disconnected');
+});
+
+// Graceful shutdown
+mongoose.connection.on('SIGINT', async () => {
+  await mongoose.connection.close();
+  console.log('🔌 Mongoose connection closed through app termination');
+  process.exit(0);
 });
 
 export default connectDB;

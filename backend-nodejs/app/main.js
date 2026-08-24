@@ -26,6 +26,7 @@ if (missingEnvVars.length > 0) {
 
 const app = express();
 let isReady = false;
+let isDBConnecting = false;
 
 // Security middleware
 app.use(helmet());
@@ -83,11 +84,26 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health/ready', (req, res) => {
+  if (isDBConnecting) {
+    return res.status(503).json({ 
+      status: 'not_ready',
+      message: 'Database connection in progress',
+      database: 'connecting'
+    });
+  }
+  
   if (!isReady) {
-    return res.status(503).json({ status: 'not_ready' });
+    return res.status(503).json({ 
+      status: 'not_ready',
+      message: 'Database not connected',
+      database: 'disconnected'
+    });
   }
 
-  res.json({ status: 'ready' });
+  res.json({ 
+    status: 'ready',
+    database: 'connected'
+  });
 });
 
 // API info endpoint
@@ -130,9 +146,7 @@ app.use(errorHandler);
 const PORT = Number(process.env.PORT) || 3000;
 
 export const startServer = async () => {
-  await connectDB();
-  isReady = true;
-
+  // Start server first, then connect to DB in background
   const server = app.listen(PORT, () => {
     logger.info('Server started successfully', {
       port: PORT,
@@ -144,6 +158,20 @@ export const startServer = async () => {
     console.log(`📚 API docs available at http://localhost:${PORT}/api`);
     console.log(`🏥 Health check at http://localhost:${PORT}/`);
   });
+
+  // Connect to DB in background to avoid blocking startup
+  isDBConnecting = true;
+  connectDB()
+    .then(() => {
+      isReady = true;
+      isDBConnecting = false;
+      console.log('✅ Application ready to handle requests');
+    })
+    .catch((error) => {
+      isDBConnecting = false;
+      console.error('❌ Database connection failed after retries:', error.message);
+      console.log('⚠️ Server running but database not connected');
+    });
 
   const shutdown = async (signal) => {
     logger.info(`Received ${signal}, shutting down`);
