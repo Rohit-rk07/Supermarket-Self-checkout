@@ -4,8 +4,12 @@ import path from 'path';
 
 // Create logs directory if it doesn't exist
 const logsDir = path.join(process.cwd(), 'logs');
-if (!fs.existsSync(logsDir)) {
+let logsDirWritable = false;
+try {
     fs.mkdirSync(logsDir, { recursive: true });
+    logsDirWritable = true;
+} catch (error) {
+    console.warn('Log directory not writable, file logging disabled:', error.message);
 }
 
 // Log levels
@@ -50,7 +54,7 @@ class Logger {
     }
 
     writeToFile(message) {
-        if (this.logToFile) {
+        if (this.logToFile && logsDirWritable) {
             try {
                 appendFile(this.logFile, message).catch((error) => {
                     console.error('Failed to write to log file:', error);

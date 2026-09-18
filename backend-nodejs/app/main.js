@@ -194,3 +194,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   });
 }
+
+// Export the app for serverless platforms (e.g. Vercel)
+export default app;
