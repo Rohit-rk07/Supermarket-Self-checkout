@@ -1,28 +1,23 @@
 import express from 'express';
 import { 
-  getProductByBarcode, 
   createProduct, 
   getAllProducts, 
   updateProduct, 
   deleteProduct 
 } from '../controllers/productController.js';
 import { validateRequest, productSchema } from '../middleware/validation.js';
+import { importProducts, lookupBarcode } from '../controllers/productController.js';
+import { authenticateJWT, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// GET /{barcode} - Main barcode scanning endpoint (mounted on /scan)
-router.get('/:barcode', getProductByBarcode);
-
-// GET /products - Get all products
-router.get('/products', getAllProducts);
-
-// POST /products - Create new product
-router.post('/products', validateRequest(productSchema), createProduct);
-
-// PUT /products/{barcode} - Update product
-router.put('/products/:barcode', validateRequest(productSchema), updateProduct);
-
-// DELETE /products/{barcode} - Delete product
-router.delete('/products/:barcode', deleteProduct);
+router.get('/', authenticateJWT, authorize('admin', 'staff'), getAllProducts);
+// Suggest a name and category for a barcode from a public database (admin only)
+router.get('/lookup/:barcode', authenticateJWT, authorize('admin'), lookupBarcode);
+// Bulk import from a CSV (the admin page parses the file and sends the rows)
+router.post('/import', authenticateJWT, authorize('admin'), importProducts);
+router.post('/', authenticateJWT, authorize('admin'), validateRequest(productSchema), createProduct);
+router.put('/:barcode', authenticateJWT, authorize('admin'), validateRequest(productSchema), updateProduct);
+router.delete('/:barcode', authenticateJWT, authorize('admin'), deleteProduct);
 
 export default router;

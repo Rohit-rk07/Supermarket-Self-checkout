@@ -1,4 +1,5 @@
 import Product from '../models/Product.js';
+import { productSchema } from '../middleware/validation.js';
 import logger from '../utils/logger.js';
 
 // Get product by barcode
@@ -42,7 +43,22 @@ export const createProduct = async (req, res, next) => {
     const { barcode, name, price, category, stock } = req.body;
     
     logger.dbLog('CREATE', 'products', { barcode, name });
-    const product = new Product({ barcode, name, price, category, stock });
+    const existing = await Product.findOne({ barcode });
+    if (existing && existing.isActive) {
+      return res.status(409).json({
+        success: false,
+        error: 'Product already exists',
+        details: `A product with barcode ${barcode} already exists`,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // A previously deleted product with this barcode is brought back with the new details
+    const details = { name, price, isActive: true };
+    if (category !== undefined) details.category = category;
+    if (stock !== undefined) details.stock = stock;
+    const product = existing || new Product({ barcode });
+    product.set(details);
     await product.save();
     
     logger.info('Product created', { barcode, name });
@@ -129,6 +145,128 @@ export const updateProduct = async (req, res, next) => {
       success: true,
       message: 'Product updated successfully',
       data: product,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Import many products at once (CSV upload from the admin page).
+// Every row is validated like a single product. Valid rows are added or updated by barcode;
+// invalid rows are skipped and reported back, so one bad row never blocks the rest.
+const MAX_IMPORT_ROWS = 500;
+
+export const importProducts = async (req, res, next) => {
+  try {
+    const rows = req.body?.products;
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ success: false, message: 'Send a non-empty products array' });
+    }
+    if (rows.length > MAX_IMPORT_ROWS) {
+      return res.status(400).json({ success: false, message: `Import at most ${MAX_IMPORT_ROWS} products at a time` });
+    }
+
+    const errors = [];
+    const valid = [];
+    const seen = new Set();
+
+    rows.forEach((row, index) => {
+      const rowNumber = index + 2; // spreadsheet row number: the header is row 1
+      const { error, value } = productSchema.validate(row, { stripUnknown: true });
+
+      if (error) {
+        errors.push({ row: rowNumber, barcode: row?.barcode, message: error.details[0].message });
+        return;
+      }
+      if (seen.has(value.barcode)) {
+        errors.push({ row: rowNumber, barcode: value.barcode, message: 'Duplicate barcode in this file' });
+        return;
+      }
+
+      seen.add(value.barcode);
+      valid.push(value);
+    });
+
+    let created = 0;
+    let updated = 0;
+
+    if (valid.length > 0) {
+      logger.dbLog('IMPORT', 'products', { count: valid.length });
+      const result = await Product.bulkWrite(
+        valid.map(({ barcode, ...details }) => ({
+          updateOne: {
+            filter: { barcode },
+            update: { $set: { ...details, isActive: true } },
+            upsert: true
+          }
+        }))
+      );
+      created = result.upsertedCount;
+      updated = result.matchedCount;
+    }
+
+    logger.info('Products imported', { created, updated, failed: errors.length });
+    res.json({
+      success: true,
+      message: `${created} added, ${updated} updated, ${errors.length} skipped`,
+      data: { created, updated, failed: errors.length, errors },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Suggest a name and category for a barcode from Open Food Facts (a free public food-product database).
+// It never has the store's price, so the admin still enters that. Only the barcode leaves our server.
+export const lookupBarcode = async (req, res, next) => {
+  try {
+    const { barcode } = req.params;
+
+    if (!/^\d{8,14}$/.test(barcode)) {
+      return res.status(400).json({ success: false, message: 'Enter the 8 to 14 digit barcode' });
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    let response;
+
+    try {
+      response = await fetch(
+        `https://world.openfoodfacts.org/api/v2/product/${barcode}.json?fields=product_name,brands,categories_tags`,
+        { signal: controller.signal, headers: { 'User-Agent': 'SmartCheckout/1.0 (self-checkout demo)' } }
+      );
+    } catch (fetchError) {
+      logger.warn('Barcode lookup unreachable', { barcode, error: fetchError.message });
+      return res.status(502).json({ success: false, message: 'The public product database is not reachable right now' });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (response.status >= 500) {
+      return res.status(502).json({ success: false, message: 'The public product database is not reachable right now' });
+    }
+
+    const body = response.ok || response.status === 404 ? await response.json().catch(() => null) : null;
+    const found = body && body.status === 1 && body.product && body.product.product_name;
+
+    if (!found) {
+      return res.status(404).json({ success: false, message: 'Not found in the public product database. Enter the details by hand.' });
+    }
+
+    // categories_tags run from general to specific (for example en:chocolate-spreads); use the most specific
+    const lastTag = (body.product.categories_tags || []).slice(-1)[0] || '';
+    const category = lastTag.replace(/^[a-z]{2}:/, '').replace(/-/g, ' ').trim();
+
+    res.json({
+      success: true,
+      data: {
+        name: String(body.product.product_name).trim().slice(0, 100),
+        brand: (body.product.brands || '').split(',')[0].trim(),
+        category: category ? category.charAt(0).toUpperCase() + category.slice(1, 50) : ''
+      },
       timestamp: new Date().toISOString()
     });
   } catch (error) {

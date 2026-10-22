@@ -1,5 +1,7 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { 
+  demoLogin,
   sendPhoneOTP,
   verifyPhoneOTP,
   completeRegistration,
@@ -11,6 +13,42 @@ import { validateRequest } from '../middleware/validation.js';
 import Joi from 'joi';
 
 const router = express.Router();
+
+const otpLimitMessage = {
+  success: false,
+  message: 'Too many OTP requests. Please try again later.'
+};
+
+const otpIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: otpLimitMessage
+});
+
+const otpPhoneLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.body.phoneNumber.trim().toLowerCase(),
+  message: otpLimitMessage
+});
+
+// Guards the 6-digit code against guessing: only failed attempts count, per phone number
+const otpVerifyPhoneLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => `verify:${req.body.phoneNumber.trim().toLowerCase()}`,
+  message: {
+    success: false,
+    message: 'Too many incorrect attempts. Please request a new OTP in a few minutes.'
+  }
+});
 
 // Validation schemas
 const phoneOtpSchema = Joi.object({
@@ -35,8 +73,9 @@ const updateProfileSchema = Joi.object({
 });
 
 // Phone-based authentication routes
-router.post('/phone/send-otp', validateRequest(phoneOtpSchema), sendPhoneOTP);
-router.post('/phone/verify-otp', validateRequest(verifyOtpSchema), verifyPhoneOTP);
+router.post('/phone/send-otp', validateRequest(phoneOtpSchema), otpIpLimiter, otpPhoneLimiter, sendPhoneOTP);
+router.post('/phone/verify-otp', validateRequest(verifyOtpSchema), otpVerifyPhoneLimiter, verifyPhoneOTP);
+router.post('/demo-login', demoLogin);
 router.post('/complete-registration', authenticateJWT, validateRequest(completeRegistrationSchema), completeRegistration);
 
 // User profile routes

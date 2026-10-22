@@ -6,7 +6,9 @@ import {
   updateOrderStatus,
   cancelOrder,
   getAllOrders,
-  getOrderStats
+  getOrderStats,
+  verifyReceipt,
+  confirmExit
 } from '../controllers/orderController.js';
 import { authenticateJWT, authorize } from '../middleware/auth.js';
 import { validateRequest } from '../middleware/validation.js';
@@ -22,14 +24,7 @@ const createOrderSchema = Joi.object({
       quantity: Joi.number().integer().min(1).default(1)
     })
   ).min(1).required(),
-  notes: Joi.string().max(500).optional(),
-  deliveryAddress: Joi.object({
-    street: Joi.string().required(),
-    city: Joi.string().required(),
-    state: Joi.string().required(),
-    zipCode: Joi.string().required(),
-    country: Joi.string().default('India')
-  }).optional()
+  notes: Joi.string().max(500).optional()
 });
 
 const updateOrderStatusSchema = Joi.object({
@@ -40,6 +35,9 @@ const updateOrderStatusSchema = Joi.object({
 // Routes
 router.post('/', authenticateJWT, validateRequest(createOrderSchema), createOrder);
 router.get('/my-orders', authenticateJWT, getUserOrders);
+// Exit verification (staff and admin). Declared before '/:orderId' routes.
+router.get('/verify/:orderNumber', authenticateJWT, authorize('admin', 'staff'), verifyReceipt);
+router.post('/verify/:orderNumber/exit', authenticateJWT, authorize('admin', 'staff'), confirmExit);
 router.get('/stats', authenticateJWT, authorize('admin', 'staff'), getOrderStats);
 router.get('/all', authenticateJWT, authorize('admin', 'staff'), getAllOrders);
 router.get('/:orderId', authenticateJWT, getOrderById);

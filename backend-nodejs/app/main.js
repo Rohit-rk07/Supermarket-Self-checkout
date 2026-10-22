@@ -6,9 +6,11 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import connectDB from './database.js';
 import productRoutes from './routes/productRoutes.js';
+import scanRoutes from './routes/scanRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import orderRoutes from './routes/orderRoutes.js';
+import userRoutes from './routes/userRoutes.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import logger, { httpLogger } from './utils/logger.js';
 
@@ -51,7 +53,7 @@ app.use(cors({
   origin: allowedOrigins,
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "demo-token", "Accept", "X-Requested-With"]
+  allowedHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With"]
 }));
 
 // HTTP request logging
@@ -61,14 +63,16 @@ app.options('*', cors());
 app.use(httpLogger);
 
 // Body parsing middleware
-app.use(express.json({ limit: '1mb' }));
+// Body parsing middleware (rawBody is kept for Razorpay webhook signature verification)
+app.use(express.json({ limit: '1mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // API Routes
-app.use('/api/v1/scan', productRoutes);
+app.use('/api/v1/scan', scanRoutes);
 app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/orders', orderRoutes);
+app.use('/api/v1/users', userRoutes);
 
 // Auth routes (matching frontend expectations)
 app.use('/api/auth', authRoutes);

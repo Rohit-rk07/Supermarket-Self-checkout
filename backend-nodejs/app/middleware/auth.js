@@ -1,23 +1,11 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
+export const DEVELOPMENT_DEMO_USER_ID = 'development-demo-user';
+
 // JWT Authentication Middleware
 export const authenticateJWT = async (req, res, next) => {
   try {
-    // Check for demo-token authentication first
-    if (req.headers['demo-token'] === 'demo-token-123') {
-      // Create a fake user object for demo authentication
-      req.user = {
-        _id: 'demo-user',
-        name: 'Demo User',
-        phoneNumber: '+91-9999999999',
-        isActive: true,
-        role: 'user',
-        isDemo: true
-      };
-      return next();
-    }
-
     const authHeader = req.headers.authorization;
     
     if (!authHeader) {
@@ -38,6 +26,21 @@ export const authenticateJWT = async (req, res, next) => {
 
     // Verify JWT token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    if (
+      process.env.NODE_ENV === 'development' &&
+      decoded.userId === DEVELOPMENT_DEMO_USER_ID
+    ) {
+      req.user = {
+        _id: DEVELOPMENT_DEMO_USER_ID,
+        name: 'Demo User',
+        phoneNumber: '+919999999999',
+        isActive: true,
+        role: 'customer',
+        isDemo: true
+      };
+      return next();
+    }
     
     // Find user in database
     const user = await User.findById(decoded.userId);

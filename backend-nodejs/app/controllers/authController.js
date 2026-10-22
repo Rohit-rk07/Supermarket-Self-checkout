@@ -1,6 +1,30 @@
 import User from '../models/User.js';
-import { generateJWT } from '../middleware/auth.js';
+import { DEVELOPMENT_DEMO_USER_ID, generateJWT } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
+
+export const demoLogin = (req, res) => {
+  if (process.env.NODE_ENV !== 'development') {
+    return res.status(404).json({ success: false, message: 'Not found' });
+  }
+
+  const user = {
+    _id: DEVELOPMENT_DEMO_USER_ID,
+    phoneNumber: '+919999999999',
+    name: 'Demo User',
+    email: 'demo@example.com',
+    role: 'customer',
+    isPhoneVerified: true,
+    isDemo: true
+  };
+
+  res.json({
+    success: true,
+    data: {
+      token: generateJWT(user._id),
+      user
+    }
+  });
+};
 
 // Send OTP to phone number
 export const sendPhoneOTP = async (req, res) => {
@@ -194,6 +218,21 @@ export const verifyPhoneOTP = async (req, res) => {
     user.isPhoneVerified = true;
     user.otpCode = undefined;
     user.otpExpires = undefined;
+    // First-admin bootstrap: a phone number listed in ADMIN_PHONE_NUMBERS becomes admin when it logs in,
+    // but only while the system has no admin yet. After that, admins manage roles in the app.
+    const bootstrapNumbers = (process.env.ADMIN_PHONE_NUMBERS || '')
+      .split(',')
+      .map((number) => number.trim())
+      .filter(Boolean);
+
+    if (bootstrapNumbers.includes(user.phoneNumber) && user.role !== 'admin') {
+      const adminExists = await User.exists({ role: 'admin' });
+      if (!adminExists) {
+        user.role = 'admin';
+        logger.authLog('ADMIN_BOOTSTRAPPED', user._id, { phoneNumber });
+      }
+    }
+
     user.lastLogin = new Date();
     
     await user.save();

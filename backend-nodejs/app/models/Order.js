@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { computeTotals } from '../utils/pricing.js';
 
 const orderItemSchema = new mongoose.Schema({
   productId: {
@@ -47,6 +48,14 @@ const orderSchema = new mongoose.Schema({
     required: true
   },
   items: [orderItemSchema],
+  subtotal: {
+    type: Number,
+    min: 0
+  },
+  tax: {
+    type: Number,
+    min: 0
+  },
   total: {
     type: Number,
     required: true,
@@ -74,6 +83,9 @@ const orderSchema = new mongoose.Schema({
   razorpayOrderId: String,
   razorpayPaymentId: String,
   razorpaySignature: String,
+  paidAt: Date,
+  exitedAt: Date, // set when staff confirm the shopper may leave (receipt can only be used once)
+  exitedBy: mongoose.Schema.Types.Mixed,
   orderNumber: {
     type: String,
     unique: true,
@@ -98,6 +110,7 @@ orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ status: 1 });
 orderSchema.index({ paymentStatus: 1 });
 orderSchema.index({ createdAt: -1 });
+orderSchema.index({ razorpayOrderId: 1 });
 // Compound indexes for common query patterns
 orderSchema.index({ userId: 1, status: 1, createdAt: -1 });
 orderSchema.index({ userPhone: 1, createdAt: -1 });
@@ -115,7 +128,11 @@ orderSchema.pre('save', function(next) {
 
 // Calculate total from items
 orderSchema.methods.calculateTotal = function() {
-  this.total = this.items.reduce((sum, item) => sum + item.subtotal, 0);
+  const itemsTotal = this.items.reduce((sum, item) => sum + item.subtotal, 0);
+  const totals = computeTotals(itemsTotal);
+  this.subtotal = totals.subtotal;
+  this.tax = totals.tax;
+  this.total = totals.total;
   return this.total;
 };
 
@@ -124,7 +141,10 @@ orderSchema.pre('save', function(next) {
   this.items.forEach(item => {
     item.subtotal = item.price * item.quantity;
   });
-  this.calculateTotal();
+  // Only recalculate for new orders or changed items, so old orders keep their original totals
+  if (this.isNew || this.isModified('items')) {
+    this.calculateTotal();
+  }
   next();
 });
 

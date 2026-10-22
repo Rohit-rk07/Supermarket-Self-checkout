@@ -1,10 +1,18 @@
 import mongoose from 'mongoose';
+import dns from 'dns';
 
 let connectionRetries = 0;
 const MAX_RETRIES = 5;
 const RETRY_DELAY = 5000; // 5 seconds
 
 const connectDB = async () => {
+  // Optional: use specific DNS servers for the MongoDB Atlas SRV lookup.
+  // Fixes "querySrv ECONNREFUSED" when the local resolver (e.g. 127.0.0.1) refuses SRV queries.
+  // Set DNS_SERVERS=8.8.8.8,1.1.1.1 in .env. Read here because dotenv loads after imports.
+  if (process.env.DNS_SERVERS) {
+    dns.setServers(process.env.DNS_SERVERS.split(',').map(server => server.trim()).filter(Boolean));
+  }
+
   const DATABASE_URL = process.env.MONGODB_URI || "mongodb://localhost:27017/supermarket-checkout";
   
   // Ensure database name is specified in connection string

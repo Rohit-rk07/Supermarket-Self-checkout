@@ -4,15 +4,15 @@ import Joi from 'joi';
 export const productSchema = Joi.object({
   barcode: Joi.string().required().min(8).max(20),
   name: Joi.string().required().min(1).max(100),
-  price: Joi.number().required().min(0).max(10000)
+  price: Joi.number().required().min(0).max(10000),
+  category: Joi.string().trim().max(50).optional(),
+  stock: Joi.number().integer().min(0).optional()
 });
 
-// Razorpay order validation schema
+// Razorpay order validation schema: the client names a saved order, never an amount
 export const orderSchema = Joi.object({
-  amount: Joi.number().required().min(0.01),
-  currency: Joi.string().default('INR'),
-  receipt: Joi.string().optional(),
-  notes: Joi.object().optional()
+  orderId: Joi.string().required(),
+  currency: Joi.string().default('INR')
 });
 
 // Payment verification schema
