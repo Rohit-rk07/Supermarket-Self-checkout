@@ -1,7 +1,14 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { useAuth } from "./AuthContext";
 
 const OrderContext = createContext();
+
+const buildHeaders = (token) => {
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+    };
+};
 
 export const OrderProvider = ({ children }) => {
     const { user } = useAuth();
@@ -9,77 +16,56 @@ export const OrderProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // Fetch orders when user changes
-    useEffect(() => {
-        const fetchOrders = async () => {
-            if (!user || !user.token) {
-                setOrders([]);
-                setLoading(false);
-                return;
+    // Load the user's orders (also used to refresh after a payment)
+    const fetchOrders = useCallback(async () => {
+        if (!user || !user.token) {
+            setOrders([]);
+            setLoading(false);
+            return;
+        }
+
+        try {
+            setLoading(true);
+            setError(null);
+
+            const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/v1/orders/my-orders`, {
+                headers: buildHeaders(user.token)
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch purchases');
             }
 
-            try {
-                setLoading(true);
-                setError(null);
-                
-                const headers = {
-                    'Content-Type': 'application/json'
-                };
-
-                // Handle demo user authentication
-                if (user.token === 'demo-token') {
-                    headers['demo-token'] = 'demo-token-123';
-                } else {
-                    headers['Authorization'] = `Bearer ${user.token}`;
-                }
-                
-                const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/v1/orders/my-orders`, {
-                    headers
-                });
-
-                if (!response.ok) {
-                    throw new Error('Failed to fetch purchases');
-                }
-
-                const data = await response.json();
-                setOrders(data.data.orders || []);
-            } catch (err) {
-                console.error("Error fetching purchases:", err);
-                setError("Failed to load purchase history. Please try again later.");
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchOrders();
+            const data = await response.json();
+            setOrders(data.data.orders || []);
+        } catch (err) {
+            console.error("Error fetching purchases:", err);
+            setError("Failed to load purchase history. Please try again later.");
+        } finally {
+            setLoading(false);
+        }
     }, [user]);
 
-    // Create a new order
+    // Fetch orders when user changes
+    useEffect(() => {
+        fetchOrders();
+    }, [fetchOrders]);
+
+    // Save a new order. It starts as pending/unpaid and is priced by the server,
+    // so only barcodes and quantities are sent. Returns the new order id.
     const createOrder = async (orderData) => {
         if (!user || !user.token) return null;
 
         try {
-            const headers = {
-                'Content-Type': 'application/json'
-            };
-
-            // Handle demo user authentication
-            if (user.token === 'demo-token') {
-                headers['demo-token'] = 'demo-token-123';
-            } else {
-                headers['Authorization'] = `Bearer ${user.token}`;
-            }
-
             const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/v1/orders`, {
                 method: 'POST',
-                headers,
+                headers: buildHeaders(user.token),
                 body: JSON.stringify({
                     items: orderData.items.map(item => ({
                         barcode: item.barcode,
                         quantity: item.quantity || 1
                     })),
-                    notes: orderData.notes || `Payment via ${orderData.paymentMethod}`,
-                    deliveryAddress: orderData.deliveryAddress
+                    notes: orderData.notes || 'Self checkout'
                 })
             });
 
@@ -89,9 +75,9 @@ export const OrderProvider = ({ children }) => {
 
             const data = await response.json();
             const newOrder = data.data;
-            
+
             setOrders(prevOrders => [newOrder, ...prevOrders]);
-            
+
             return newOrder._id;
         } catch (err) {
             console.error("Error creating order:", err);
@@ -101,11 +87,12 @@ export const OrderProvider = ({ children }) => {
     };
 
     return (
-        <OrderContext.Provider value={{ 
-            orders, 
-            loading, 
-            error, 
-            createOrder 
+        <OrderContext.Provider value={{
+            orders,
+            loading,
+            error,
+            createOrder,
+            refreshOrders: fetchOrders
         }}>
             {children}
         </OrderContext.Provider>

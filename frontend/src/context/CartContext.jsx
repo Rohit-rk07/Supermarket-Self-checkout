@@ -7,6 +7,9 @@ export const CartProvider = ({ children }) => {
     const { user } = useAuth();
     const [cart, setCart] = useState([]);
     const hasFetchedCart = useRef(false); // Flag to avoid first write
+    // Which storage key the current cart was loaded from (lets pages wait until it matches the user)
+    const [loadedKey, setLoadedKey] = useState(null);
+    const currentKey = user ? `cart_${user.phoneNumber || user.email || user.id}` : 'cart_guest';
 
     // Load cart from localStorage on mount / when user changes
     useEffect(() => {
@@ -23,6 +26,7 @@ export const CartProvider = ({ children }) => {
             setCart([]);
         }
         hasFetchedCart.current = true;
+        setLoadedKey(key);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user?.phoneNumber, user?.email, user?.id]);
 
@@ -98,6 +102,7 @@ export const CartProvider = ({ children }) => {
             removeFromCart,
             updateQuantity,
             clearCart,
+            cartReady: loadedKey === currentKey,
             totalItems,
             subtotal
         }}>

@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { Html5QrcodeScanner,Html5QrcodeScanType } from "html5-qrcode";
 import { Dialog, DialogTitle, DialogContent, Button, Box } from "@mui/material";
 
-const BarcodeScanner = ({ onScan, closeScanner }) => {
+const BarcodeScanner = ({ onScan, closeScanner, title = "📸 Scan a Product" }) => {
     const scannerRef = useRef(null);
 
     useEffect(() => {
@@ -50,7 +50,7 @@ const BarcodeScanner = ({ onScan, closeScanner }) => {
             maxWidth="sm"
             disableEnforceFocus
         >
-            <DialogTitle>📸 Scan a Product</DialogTitle>
+            <DialogTitle>{title}</DialogTitle>
             <DialogContent>
                 <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
                     <div id="reader" style={{ width: "100%", height: "300px" }}></div>

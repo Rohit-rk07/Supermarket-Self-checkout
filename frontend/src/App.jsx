@@ -15,6 +15,10 @@ const Checkout = lazy(() => import("./components/checkout"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const BarcodeScanner = lazy(() => import("./components/BarcodeScanner"));
 const AccountPage = lazy(() => import("./components/AccountPage"));
+const AdminProductsPage = lazy(() => import("./pages/AdminProductsPage"));
+const VerifyExitPage = lazy(() => import("./pages/VerifyExitPage"));
+const StaffOrdersPage = lazy(() => import("./pages/StaffOrdersPage"));
+const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
 
 function App() {
     return (
@@ -33,6 +37,10 @@ function App() {
                                     <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
                                     <Route path="/BarcodeScanner" element={<ProtectedRoute><BarcodeScanner /></ProtectedRoute>} />
                                     <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
+                                    <Route path="/admin/products" element={<ProtectedRoute><AdminProductsPage /></ProtectedRoute>} />
+                                    <Route path="/staff/verify" element={<ProtectedRoute><VerifyExitPage /></ProtectedRoute>} />
+                                    <Route path="/staff/orders" element={<ProtectedRoute><StaffOrdersPage /></ProtectedRoute>} />
+                                    <Route path="/admin/users" element={<ProtectedRoute><AdminUsersPage /></ProtectedRoute>} />
                                 </Routes>
                             </Suspense>
                         </OrderProvider>

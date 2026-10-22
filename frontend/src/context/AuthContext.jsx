@@ -14,19 +14,6 @@ export const AuthProvider = ({ children }) => {
         const checkAuthState = async () => {
             const token = localStorage.getItem('token') || localStorage.getItem('authToken');
             if (token) {
-                // Handle demo user
-                if (token === 'demo-token') {
-                    const demoUser = localStorage.getItem('user');
-                    if (demoUser) {
-                        setUser({
-                            ...JSON.parse(demoUser),
-                            token: token
-                        });
-                        setLoading(false);
-                        return;
-                    }
-                }
-
                 try {
                     // Verify token with backend
                     const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/auth/profile`, {
@@ -39,7 +26,7 @@ export const AuthProvider = ({ children }) => {
                     if (response.ok) {
                         const data = await response.json();
                         setUser({
-                            id: data.data._id,
+                            id: data.data.id || data.data._id,
                             name: data.data.name,
                             phoneNumber: data.data.phoneNumber,
                             email: data.data.email,
@@ -82,24 +69,24 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    // Demo user login
-    const loginAsDemo = () => {
-        const demoUser = {
-            _id: 'demo-user-permanent-id',
-            name: 'Demo User',
-            phoneNumber: '+919876543210',
-            email: 'demo@example.com',
-            isPhoneVerified: true,
-            isDemo: true
-        };
-        
-        setUser({
-            ...demoUser,
-            token: 'demo-token'
-        });
-        
-        localStorage.setItem('token', 'demo-token');
-        localStorage.setItem('user', JSON.stringify(demoUser));
+    // Development demo login uses a short-lived JWT issued by the backend.
+    const loginAsDemo = async () => {
+        try {
+            setError("");
+            const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/auth/demo-login`, {
+                method: 'POST'
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.message || "Demo login is unavailable");
+            }
+
+            await login(data.data);
+            return data;
+        } catch (error) {
+            setError(error.message || "Demo login failed");
+            throw error;
+        }
     };
 
     // Send OTP to phone number

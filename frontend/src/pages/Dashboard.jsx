@@ -35,11 +35,13 @@ const Dashboard = () => {
   const fetchProduct = async (barcode) => {
     try {
       const SERVER_URL = import.meta.env.VITE_SERVER_URL;
-      const response = await fetch(`${SERVER_URL}/api/v1/scan/${barcode}`);
+      const response = await fetch(`${SERVER_URL}/api/v1/scan/${encodeURIComponent(barcode)}`, {
+        headers: { 'Authorization': `Bearer ${user?.token}` }
+      });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || "Product not found");
+        throw new Error(errorData.error || errorData.message || "Product not found");
       }
 
       const result = await response.json();
@@ -78,6 +80,42 @@ const Dashboard = () => {
       disabled: cart.length === 0
     }
   ];
+
+  // Extra card shown only to admins (the server enforces the role as well)
+  const adminActions = user?.role === "admin" ? [
+    {
+      title: "Manage Products",
+      icon: <InventoryIcon sx={{ fontSize: 32 }} />,
+      color: "#8b5cf6",
+      action: () => navigate("/admin/products"),
+      description: "Add and edit the catalog"
+    },
+    {
+      title: "Manage Staff",
+      icon: <PersonIcon sx={{ fontSize: 32 }} />,
+      color: "#f59e0b",
+      action: () => navigate("/admin/users"),
+      description: "Give people staff or admin access"
+    }
+  ] : [];
+
+  // Extra card for staff and admins: check a shopper's receipt at the exit
+  const staffActions = (user?.role === "admin" || user?.role === "staff") ? [
+    {
+      title: "Verify Receipt",
+      icon: <ScanIcon sx={{ fontSize: 32 }} />,
+      color: "#ef4444",
+      action: () => navigate("/staff/verify"),
+      description: "Scan a receipt QR at the exit"
+    },
+    {
+      title: "All Orders",
+      icon: <CartIcon sx={{ fontSize: 32 }} />,
+      color: "#3b82f6",
+      action: () => navigate("/staff/orders"),
+      description: "Sales and payment status"
+    }
+  ] : [];
 
   const stats = [
     { label: "Items in Cart", value: totalItems, icon: <InventoryIcon />, color: "#10b981" },
@@ -186,7 +224,7 @@ const Dashboard = () => {
         </Typography>
         
         <Grid container spacing={3}>
-          {quickActions.map((action, index) => (
+          {[...quickActions, ...adminActions, ...staffActions].map((action, index) => (
             <Grid item xs={12} sm={6} md={4} key={index}>
               <Card
                 elevation={0}

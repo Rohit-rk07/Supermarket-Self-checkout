@@ -55,6 +55,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { useOrders } from "../context/OrderContext";
 import { useNavigate } from "react-router-dom";
+import { QRCodeSVG } from "qrcode.react";
 
 const AccountPage = () => {
     const { user, logout } = useAuth();
@@ -544,10 +545,26 @@ const AccountPage = () => {
                                         Purchase Receipt
                                     </Typography>
                                     <Typography variant="body2" sx={{ color: '#64748b' }}>
-                                        {selectedPurchase._id.slice(-6).toUpperCase()}
+                                        {selectedPurchase.orderNumber || selectedPurchase._id.slice(-6).toUpperCase()}
                                     </Typography>
                                 </div>
                                 
+                                {/* Exit pass: only paid orders get a QR code that staff can scan */}
+                                <div style={{ textAlign: 'center', margin: '12px 0' }}>
+                                    {selectedPurchase.paymentStatus === 'paid' ? (
+                                        <>
+                                            <QRCodeSVG value={selectedPurchase.orderNumber || ''} size={140} />
+                                            <div style={{ fontWeight: 700, fontSize: 12, marginTop: 6, color: '#166534' }}>
+                                                PAID - show this code at the exit
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div style={{ fontWeight: 700, fontSize: 12, color: '#b91c1c' }}>
+                                            UNPAID - no exit pass
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div className="items">
                                     {selectedPurchase.items && selectedPurchase.items.map((item, index) => (
                                         <div key={index} className="item">

@@ -11,15 +11,9 @@ import {
     CircularProgress,
     Alert,
     ListItemText,
-    ListItemSecondaryAction,
-    Chip
+    ListItemSecondaryAction
 } from "@mui/material";
 import { 
-    Payment, 
-    ShoppingCartCheckout, 
-    CreditCard, 
-    LocalAtm, 
-    Receipt, 
     CheckCircle,
     AccountBalanceWallet
 } from "@mui/icons-material";
@@ -30,122 +24,104 @@ import { useAuth } from "../context/AuthContext";
 import { useState, useEffect } from "react";
 import { initializeRazorpayPayment } from "../services/RazorpayService";
 
+// Every user, including the development demo user, authenticates with a JWT
+const getAuthHeaders = () => ({
+    'Authorization': `Bearer ${localStorage.getItem('token')}`
+});
+
+// Display only: the server calculates the real amount. Keep in sync with TAX_RATE in backend utils/pricing.js
+const TAX_RATE = 0.18;
+
+const paperSx = {
+    p: 4,
+    borderRadius: 2,
+    backgroundColor: 'white',
+    border: '1px solid #f1f5f9',
+    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+};
+
 const CheckoutPage = () => {
-    const { cart, clearCart } = useCart();
-    const { createOrder } = useOrders();
-    const { user } = useAuth();
+    const { cart, clearCart, cartReady } = useCart();
+    const { createOrder, refreshOrders } = useOrders();
+    const { user, loading: authLoading } = useAuth();
     const navigate = useNavigate();
-    const [paymentMethod, setPaymentMethod] = useState(null);
     const [processing, setProcessing] = useState(false);
     const [success, setSuccess] = useState(false);
     const [paymentError, setPaymentError] = useState(null);
+    const [pendingOrderId, setPendingOrderId] = useState(null);
     
-    // Calculate totals with proper precision
+    // Totals shown to the shopper (same formula as the server)
     const subtotal = cart.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
-    const taxRate = 0.18; // 18% GST (more realistic for Indian market)
-    const tax = Math.round(subtotal * taxRate * 100) / 100; // Proper rounding to 2 decimals
-    const total = Math.round((subtotal + tax) * 100) / 100; // Proper rounding to 2 decimals
+    const tax = Math.round(subtotal * TAX_RATE * 100) / 100;
+    const total = Math.round((subtotal + tax) * 100) / 100;
 
     // If cart is empty and not in success state, redirect to cart
     useEffect(() => {
-        if (cart.length === 0 && !success) {
+        // Wait until the user and their saved cart have finished loading (matters after a page reload)
+        if (cartReady && !authLoading && cart.length === 0 && !success) {
             navigate("/cart");
         }
-    }, [cart, navigate, success]);
+    }, [cart, cartReady, authLoading, navigate, success]);
 
     // If user is not logged in, redirect to login
     useEffect(() => {
-        if (!user) {
+        if (!authLoading && !user) {
             navigate("/login");
         }
-    }, [user, navigate]);
-
-    const handlePayment = async (method) => {
-        setPaymentMethod(method);
-        
-        if (method === "razorpay") {
-            handleRazorpayPayment();
-        } else {
-            // Original payment flow for other methods
-            setProcessing(true);
-            
-            try {
-                // Create order in Firestore
-                const orderId = await createOrder({
-                    items: cart,
-                    subtotal,
-                    tax,
-                    total,
-                    paymentMethod: method,
-                    paymentStatus: "paid"
-                });
-                
-                // Simulate payment processing
-                setTimeout(() => {
-                    setProcessing(false);
-                    setSuccess(true);
-                    
-                    // Clear cart and redirect after a delay
-                    setTimeout(() => {
-                        clearCart();
-                        navigate("/account");
-                    }, 1500);
-                }, 2000);
-            } catch (error) {
-                console.error("Payment error:", error);
-                setProcessing(false);
-                setPaymentError("Failed to process payment. Please try again.");
-            }
-        }
-    };
+    }, [user, authLoading, navigate]);
 
     const handleRazorpayPayment = async () => {
         try {
             setProcessing(true);
             setPaymentError(null);
-            
-            // 1. Create order on the backend using correct server URL
+
             const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
+
+            // 1. Save the order as pending (the server prices it from the database).
+            //    If the shopper retries after cancelling, reuse the same pending order.
+            let orderId = pendingOrderId;
+            if (!orderId) {
+                orderId = await createOrder({ items: cart });
+                if (!orderId) {
+                    throw new Error('Could not save your order');
+                }
+                setPendingOrderId(orderId);
+            }
+
+            // 2. Create the Razorpay order for that saved order
             const response = await fetch(`${serverUrl}/api/v1/payments/create-order`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token') || 'demo-token'}`,
+                    ...getAuthHeaders(),
                 },
-                body: JSON.stringify({
-                    amount: total, // Send RUPEES to backend; backend converts to paise
-                    currency: 'INR',
-                    receipt: `order_${Date.now()}`,
-                    notes: {
-                        items: cart.length,
-                        subtotal: subtotal,
-                        tax: tax,
-                        total: total
-                    }
-                }),
+                body: JSON.stringify({ orderId }),
             });
-            
+
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to create order');
+                throw new Error(errorData.message || errorData.error || 'Failed to create payment');
             }
-            
+
             const orderData = await response.json();
-            
-            // 2. Initialize Razorpay payment
+
+            // 3. Open Razorpay Checkout
             await initializeRazorpayPayment({
                 amount: Math.round(orderData.amount * 100), // Razorpay expects paise
                 currency: orderData.currency,
                 orderId: orderData.orderId,
                 key: orderData.key,
+                customerName: user?.name,
+                customerEmail: user?.email,
+                customerPhone: user?.phoneNumber,
                 handler: async function (paymentResponse) {
                     try {
-                        // 3. Verify payment on backend
+                        // 4. The server verifies the signature and marks the order paid
                         const verifyResponse = await fetch(`${serverUrl}/api/v1/payments/verify-payment`, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${localStorage.getItem('token') || 'demo-token'}`,
+                                ...getAuthHeaders(),
                             },
                             body: JSON.stringify({
                                 razorpay_payment_id: paymentResponse.razorpay_payment_id,
@@ -153,29 +129,17 @@ const CheckoutPage = () => {
                                 razorpay_signature: paymentResponse.razorpay_signature
                             }),
                         });
-                        
+
                         if (!verifyResponse.ok) {
                             const errorData = await verifyResponse.json();
-                            throw new Error(errorData.message || 'Payment verification failed');
+                            throw new Error(errorData.details || errorData.message || 'Payment verification failed');
                         }
-                        
-                        // 4. Create order in database
-                        await createOrder({
-                            items: cart,
-                            subtotal,
-                            tax,
-                            total,
-                            paymentMethod: "razorpay",
-                            paymentStatus: "paid",
-                            razorpayPaymentId: paymentResponse.razorpay_payment_id,
-                            razorpayOrderId: paymentResponse.razorpay_order_id
-                        });
-                        
-                        // 5. Show success message
+
+                        // 5. Refresh the order list so it shows as paid, then show success
+                        await refreshOrders();
                         setProcessing(false);
                         setSuccess(true);
-                        
-                        // Clear cart and redirect after a delay
+
                         setTimeout(() => {
                             clearCart();
                             navigate("/account");
@@ -210,23 +174,11 @@ const CheckoutPage = () => {
                 py: 4
             }}>
                 <Container maxWidth="sm" sx={{ textAlign: "center" }}>
-                    <Paper 
-                        elevation={0} 
-                        sx={{ 
-                            p: 6, 
-                            borderRadius: 2,
-                            backgroundColor: 'white',
-                            border: '1px solid #f1f5f9',
-                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-                        }}
-                    >
+                    <Paper elevation={0} sx={{ ...paperSx, p: 6 }}>
                         <CheckCircle sx={{ fontSize: 80, mb: 3, color: '#10b981' }} />
                         <Typography variant="h3" fontWeight="700" gutterBottom sx={{ color: '#1e293b' }}>Purchase Successful!</Typography>
                         <Typography variant="h6" paragraph sx={{ color: '#64748b' }}>
-                            Your purchase has been processed successfully.
-                        </Typography>
-                        <Typography variant="body1" sx={{ color: '#64748b', mb: 3 }} gutterBottom>
-                            Please take your receipt from the printer.
+                            Your payment was verified and your order is complete.
                         </Typography>
                         <CircularProgress size={32} sx={{ mt: 2, color: '#10b981' }} />
                         <Typography variant="body1" display="block" sx={{ mt: 2, fontWeight: 500, color: '#1e293b' }}>
@@ -249,27 +201,14 @@ const CheckoutPage = () => {
                 variant="h3" 
                 fontWeight="700" 
                 gutterBottom 
-                sx={{ 
-                    textAlign: 'center', 
-                    color: '#1e293b',
-                    mb: 4
-                }}
+                sx={{ textAlign: 'center', color: '#1e293b', mb: 4 }}
             >
                 💳 Checkout
             </Typography>
             
             <Grid container spacing={4}>
                 <Grid item xs={12} md={7}>
-                    <Paper 
-                        elevation={0} 
-                        sx={{ 
-                            p: 4, 
-                            borderRadius: 2,
-                            backgroundColor: 'white',
-                            border: '1px solid #f1f5f9',
-                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-                        }}
-                    >
+                    <Paper elevation={0} sx={paperSx}>
                     <Typography variant="h5" fontWeight="600" gutterBottom sx={{ color: '#1e293b' }}>
                         Review Your Items
                     </Typography>
@@ -323,18 +262,9 @@ const CheckoutPage = () => {
                 </Grid>
                 
                 <Grid item xs={12} md={5}>
-                    <Paper 
-                        elevation={0} 
-                        sx={{ 
-                            p: 4, 
-                            borderRadius: 2,
-                            backgroundColor: 'white',
-                            border: '1px solid #f1f5f9',
-                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-                        }}
-                    >
+                    <Paper elevation={0} sx={paperSx}>
                         <Typography variant="h5" fontWeight="600" gutterBottom sx={{ color: '#1e293b' }}>
-                            Payment Options
+                            Payment
                         </Typography>
                         <Divider sx={{ mb: 3, borderColor: '#f1f5f9' }} />
                         
@@ -355,103 +285,34 @@ const CheckoutPage = () => {
                                 </Typography>
                             </Box>
                         ) : (
-                            <>
-                                <Button
-                                    variant="outlined"
-                                    fullWidth
-                                    size="large"
-                                    sx={{ 
-                                        mb: 2, 
-                                        py: 2, 
-                                        justifyContent: "flex-start",
-                                        borderRadius: 2,
-                                        borderColor: '#e2e8f0',
-                                        color: '#1e293b',
-                                        "&:hover": { 
-                                            borderColor: '#10b981',
-                                            backgroundColor: '#f0fdf4'
-                                        }
-                                    }}
-                                    onClick={() => handlePayment("razorpay")}
-                                    disabled={cart.length === 0}
-                                >
-                                    <AccountBalanceWallet sx={{ mr: 2, color: '#10b981' }} />
-                                    <Box sx={{ textAlign: "left" }}>
-                                        <Typography variant="body1" fontWeight="600" sx={{ color: '#1e293b' }}>
-                                            Pay with Razorpay
-                                        </Typography>
-                                        <Typography variant="body2" sx={{ color: '#64748b' }}>
-                                            UPI, Cards, Wallets & more
-                                        </Typography>
-                                    </Box>
-                                </Button>
-                                
-                                <Button
-                                    variant="outlined"
-                                    fullWidth
-                                    size="large"
-                                    sx={{ 
-                                        mb: 2, 
-                                        py: 2, 
-                                        justifyContent: "flex-start",
-                                        borderRadius: 2,
-                                        borderColor: '#e2e8f0',
-                                        color: '#1e293b',
-                                        "&:hover": { 
-                                            borderColor: '#10b981',
-                                            backgroundColor: '#f0fdf4'
-                                        }
-                                    }}
-                                    onClick={() => handlePayment("card")}
-                                    disabled={cart.length === 0}
-                                >
-                                    <CreditCard sx={{ mr: 2, color: '#10b981' }} />
-                                    <Box sx={{ textAlign: "left" }}>
-                                        <Typography variant="body1" fontWeight="600" sx={{ color: '#1e293b' }}>
-                                            Pay with Credit/Debit Card
-                                        </Typography>
-                                        <Typography variant="body2" sx={{ color: '#64748b' }}>
-                                            Insert or tap your card
-                                        </Typography>
-                                    </Box>
-                                </Button>
-                                
-                                <Button
-                                    variant="outlined"
-                                    fullWidth
-                                    size="large"
-                                    sx={{ 
-                                        mb: 2, 
-                                        py: 2, 
-                                        justifyContent: "flex-start",
-                                        borderRadius: 2,
-                                        borderColor: '#e2e8f0',
-                                        color: '#1e293b',
-                                        "&:hover": { 
-                                            borderColor: '#10b981',
-                                            backgroundColor: '#f0fdf4'
-                                        }
-                                    }}
-                                    onClick={() => handlePayment("cash")}
-                                    disabled={cart.length === 0}
-                                >
-                                    <LocalAtm sx={{ mr: 2, color: '#10b981' }} />
-                                    <Box sx={{ textAlign: "left" }}>
-                                        <Typography variant="body1" fontWeight="600" sx={{ color: '#1e293b' }}>
-                                            Pay with Cash
-                                        </Typography>
-                                        <Typography variant="body2" sx={{ color: '#64748b' }}>
-                                            Use the cash machine
-                                        </Typography>
-                                    </Box>
-                                </Button>
-                                
-                                <Alert severity="info" sx={{ mt: 3, borderRadius: 2, backgroundColor: '#dbeafe', borderColor: '#bfdbfe' }}>
-                                    <Typography variant="body2" sx={{ color: '#1e40af' }}>
-                                        Please follow the instructions on the payment terminal.
+                            <Button
+                                variant="outlined"
+                                fullWidth
+                                size="large"
+                                sx={{ 
+                                    py: 2, 
+                                    justifyContent: "flex-start",
+                                    borderRadius: 2,
+                                    borderColor: '#e2e8f0',
+                                    color: '#1e293b',
+                                    "&:hover": { 
+                                        borderColor: '#10b981',
+                                        backgroundColor: '#f0fdf4'
+                                    }
+                                }}
+                                onClick={handleRazorpayPayment}
+                                disabled={cart.length === 0}
+                            >
+                                <AccountBalanceWallet sx={{ mr: 2, color: '#10b981' }} />
+                                <Box sx={{ textAlign: "left" }}>
+                                    <Typography variant="body1" fontWeight="600" sx={{ color: '#1e293b' }}>
+                                        Pay with Razorpay
                                     </Typography>
-                                </Alert>
-                            </>
+                                    <Typography variant="body2" sx={{ color: '#64748b' }}>
+                                        UPI, Cards, Wallets & more
+                                    </Typography>
+                                </Box>
+                            </Button>
                         )}
                     </Paper>
                 </Grid>
