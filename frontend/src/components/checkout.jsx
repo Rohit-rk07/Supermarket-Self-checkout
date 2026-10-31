@@ -1,44 +1,20 @@
-import { 
-    Container, 
-    Typography, 
-    List, 
-    ListItem, 
-    Divider, 
-    Button, 
-    Box, 
-    Paper, 
-    Grid,
-    CircularProgress,
-    Alert,
-    ListItemText,
-    ListItemSecondaryAction
-} from "@mui/material";
-import { 
-    CheckCircle,
-    AccountBalanceWallet
-} from "@mui/icons-material";
+import { Box, Typography, Button, Alert, CircularProgress } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { useOrders } from "../context/OrderContext";
 import { useAuth } from "../context/AuthContext";
 import { useState, useEffect } from "react";
 import { initializeRazorpayPayment } from "../services/RazorpayService";
+import TopBar from "./ui/TopBar";
+import Money from "./ui/Money";
+import Receipt from "./ui/Receipt";
+import { getBasketTotals, formatMoney } from "../utils/money";
+import { fonts } from "../theme/theme";
 
 // Every user, including the development demo user, authenticates with a JWT
 const getAuthHeaders = () => ({
     'Authorization': `Bearer ${localStorage.getItem('token')}`
 });
-
-// Display only: the server calculates the real amount. Keep in sync with TAX_RATE in backend utils/pricing.js
-const TAX_RATE = 0.18;
-
-const paperSx = {
-    p: 4,
-    borderRadius: 2,
-    backgroundColor: 'white',
-    border: '1px solid #f1f5f9',
-    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-};
 
 const CheckoutPage = () => {
     const { cart, clearCart, cartReady } = useCart();
@@ -47,15 +23,18 @@ const CheckoutPage = () => {
     const navigate = useNavigate();
     const [processing, setProcessing] = useState(false);
     const [success, setSuccess] = useState(false);
+    const [paidOrder, setPaidOrder] = useState(null);
     const [paymentError, setPaymentError] = useState(null);
     const [pendingOrderId, setPendingOrderId] = useState(null);
-    
-    // Totals shown to the shopper (same formula as the server)
-    const subtotal = cart.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
-    const tax = Math.round(subtotal * TAX_RATE * 100) / 100;
-    const total = Math.round((subtotal + tax) * 100) / 100;
+    const [serverTotal, setServerTotal] = useState(null);
 
-    // If cart is empty and not in success state, redirect to cart
+    // Shown to the shopper; the server calculates the real amount
+    const { subtotal, tax, taxIncluded, total: basketTotal } = getBasketTotals(cart);
+    // If the server prices the order differently (for example a price changed), it wins
+
+    const total = serverTotal ?? basketTotal;
+
+    // If the cart is empty and we are not in the success state, go back to the basket
     useEffect(() => {
         // Wait until the user and their saved cart have finished loading (matters after a page reload)
         if (cartReady && !authLoading && cart.length === 0 && !success) {
@@ -63,7 +42,7 @@ const CheckoutPage = () => {
         }
     }, [cart, cartReady, authLoading, navigate, success]);
 
-    // If user is not logged in, redirect to login
+    // If the user is not logged in, go to the login page
     useEffect(() => {
         if (!authLoading && !user) {
             navigate("/login");
@@ -105,6 +84,14 @@ const CheckoutPage = () => {
 
             const orderData = await response.json();
 
+            // If prices changed since the items were scanned, show the new total and ask before charging
+            if (serverTotal === null && Math.abs(orderData.amount - basketTotal) > 0.009) {
+                setServerTotal(orderData.amount);
+                setPaymentError(`Prices have changed since you scanned. Your total is now ${formatMoney(orderData.amount)}. Check it and press Pay again.`);
+                setProcessing(false);
+                return;
+            }
+
             // 3. Open Razorpay Checkout
             await initializeRazorpayPayment({
                 amount: Math.round(orderData.amount * 100), // Razorpay expects paise
@@ -135,15 +122,14 @@ const CheckoutPage = () => {
                             throw new Error(errorData.details || errorData.message || 'Payment verification failed');
                         }
 
-                        // 5. Refresh the order list so it shows as paid, then show success
-                        await refreshOrders();
-                        setProcessing(false);
-                        setSuccess(true);
+                        const verified = await verifyResponse.json();
 
-                        setTimeout(() => {
-                            clearCart();
-                            navigate("/account");
-                        }, 1500);
+                        // 5. Show the paid receipt, then refresh the order list and empty the basket
+                        setPaidOrder(verified.data);
+                        setSuccess(true);
+                        setProcessing(false);
+                        clearCart();
+                        await refreshOrders();
                     } catch (error) {
                         setProcessing(false);
                         setPaymentError(`Payment verification failed: ${error.message}`);
@@ -152,174 +138,162 @@ const CheckoutPage = () => {
                 },
                 onFailure: function (error) {
                     setProcessing(false);
-                    setPaymentError(`Payment failed: ${error.description || error.error?.description || 'Unknown error'}`);
+                    setPaymentError(`Payment did not go through: ${error.description || error.error?.description || 'unknown reason'}`);
                     console.error('Razorpay payment failed:', error);
                 }
             });
         } catch (error) {
             setProcessing(false);
-            setPaymentError(`Payment initialization failed: ${error.message}`);
+            // An expired order cannot be paid; forget it so the next try saves a fresh one
+            if (/expired/i.test(error.message)) setPendingOrderId(null);
+            setPaymentError(`We could not start the payment: ${error.message}`);
             console.error('Razorpay payment error:', error);
         }
     };
 
     if (success) {
         return (
-            <Box sx={{ 
-                minHeight: '100vh', 
-                backgroundColor: '#f8fafc',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                py: 4
-            }}>
-                <Container maxWidth="sm" sx={{ textAlign: "center" }}>
-                    <Paper elevation={0} sx={{ ...paperSx, p: 6 }}>
-                        <CheckCircle sx={{ fontSize: 80, mb: 3, color: '#10b981' }} />
-                        <Typography variant="h3" fontWeight="700" gutterBottom sx={{ color: '#1e293b' }}>Purchase Successful!</Typography>
-                        <Typography variant="h6" paragraph sx={{ color: '#64748b' }}>
-                            Your payment was verified and your order is complete.
-                        </Typography>
-                        <CircularProgress size={32} sx={{ mt: 2, color: '#10b981' }} />
-                        <Typography variant="body1" display="block" sx={{ mt: 2, fontWeight: 500, color: '#1e293b' }}>
-                            Redirecting to your account...
-                        </Typography>
-                    </Paper>
-                </Container>
+            <Box sx={{ minHeight: "100vh", pb: 8 }}>
+                <TopBar hideAccount />
+                <Box sx={{ maxWidth: 440, mx: "auto", px: 3, pt: { xs: 4, sm: 6 }, textAlign: "center" }}>
+                    <Typography component="h1" variant="h3" sx={{ mb: 1 }}>
+                        Purchase Successful!
+                    </Typography>
+                    <Typography color="text.secondary" sx={{ mb: 4 }}>
+                        Your payment is confirmed. Show this receipt at the exit.
+                    </Typography>
+
+                    <Receipt order={paidOrder} animate />
+
+                    <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, mt: 5 }}>
+                        <Button variant="contained" size="large" onClick={() => navigate("/dashboard")}>
+                            Keep shopping
+                        </Button>
+                        <Box sx={{ display: "flex", gap: 1.5 }}>
+                            <Button variant="outlined" fullWidth onClick={() => navigate("/account")}>
+                                All receipts
+                            </Button>
+                            <Button variant="outlined" fullWidth onClick={() => window.print()}>
+                                Print
+                            </Button>
+                        </Box>
+                    </Box>
+                </Box>
             </Box>
         );
     }
 
     return (
-    <Box sx={{ 
-        minHeight: '100vh', 
-        backgroundColor: '#f8fafc',
-        py: 4
-    }}>
-        <Container maxWidth="lg">
-            <Typography 
-                variant="h3" 
-                fontWeight="700" 
-                gutterBottom 
-                sx={{ textAlign: 'center', color: '#1e293b', mb: 4 }}
+        <Box sx={{ minHeight: "100vh" }}>
+            <TopBar title="Checkout" backTo="/cart" />
+
+            <Box
+                sx={{
+                    maxWidth: 960,
+                    mx: "auto",
+                    px: { xs: 2, sm: 3 },
+                    pt: 3,
+                    pb: 6,
+                    display: "grid",
+                    gridTemplateColumns: { xs: "1fr", md: "1fr 360px" },
+                    gap: { xs: 4, md: 6 },
+                    alignItems: "start",
+                }}
             >
-                💳 Checkout
-            </Typography>
-            
-            <Grid container spacing={4}>
-                <Grid item xs={12} md={7}>
-                    <Paper elevation={0} sx={paperSx}>
-                    <Typography variant="h5" fontWeight="600" gutterBottom sx={{ color: '#1e293b' }}>
-                        Review Your Items
+                {/* What you are paying for */}
+                <Box component="section" aria-label="Items you are paying for">
+                    <Typography component="h2" variant="h5" sx={{ mb: 1 }}>
+                        Your items
                     </Typography>
-                    <Divider sx={{ mb: 2, borderColor: '#f1f5f9' }} />
-                    
+
                     {cart.length === 0 ? (
-                        <Typography variant="body1" sx={{ py: 3, textAlign: "center", color: '#64748b' }}>
-                            Your cart is empty. Please scan items before checkout.
+                        <Typography color="text.secondary" sx={{ py: 3, borderTop: 1, borderColor: "divider" }}>
+                            Loading your basket...
                         </Typography>
                     ) : (
-                        <List disablePadding>
-                            {cart.map((item, idx) => (
-                                <Box key={idx}>
-                                    <ListItem sx={{ py: 1.5 }}>
-                                        <ListItemText
-                                            primary={<Typography variant="body1" fontWeight="500" sx={{ color: '#1e293b' }}>{item.name}</Typography>}
-                                            secondary={item.category && <Typography variant="body2" sx={{ color: '#64748b' }}>{`Category: ${item.category}`}</Typography>}
-                                        />
-                                        <ListItemSecondaryAction>
-                                            <Box sx={{ textAlign: "right" }}>
-                                                <Typography variant="body2" sx={{ color: '#64748b' }}>
-                                                    {item.quantity || 1} × ₹{item.price.toFixed(2)}
-                                                </Typography>
-                                                <Typography variant="body1" fontWeight="600" sx={{ color: '#10b981' }}>
-                                                    ₹{((item.quantity || 1) * item.price).toFixed(2)}
-                                                </Typography>
-                                            </Box>
-                                        </ListItemSecondaryAction>
-                                    </ListItem>
-                                    {idx < cart.length - 1 && <Divider sx={{ borderColor: '#f1f5f9' }} />}
-                                </Box>
-                            ))}
-                        </List>
-                    )}
-                    
-                    <Divider sx={{ mt: 2, mb: 2, borderColor: '#f1f5f9' }} />
-                    
-                    <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
-                        <Typography variant="body1" sx={{ color: '#64748b' }}>Subtotal</Typography>
-                        <Typography variant="body1" sx={{ color: '#1e293b' }}>₹{subtotal.toFixed(2)}</Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
-                        <Typography variant="body1" sx={{ color: '#64748b' }}>Tax (18%)</Typography>
-                        <Typography variant="body1" sx={{ color: '#1e293b' }}>₹{tax.toFixed(2)}</Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                        <Typography variant="body1" sx={{ color: '#64748b' }}>Total</Typography>
-                        <Typography variant="body1" fontWeight="700" sx={{ color: '#1e293b' }}>₹{total.toFixed(2)}</Typography>
-                    </Box>
-                    </Paper>
-                </Grid>
-                
-                <Grid item xs={12} md={5}>
-                    <Paper elevation={0} sx={paperSx}>
-                        <Typography variant="h5" fontWeight="600" gutterBottom sx={{ color: '#1e293b' }}>
-                            Payment
-                        </Typography>
-                        <Divider sx={{ mb: 3, borderColor: '#f1f5f9' }} />
-                        
-                        {paymentError && (
-                            <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>
-                                {paymentError}
-                            </Alert>
-                        )}
-                        
-                        {processing ? (
-                            <Box sx={{ textAlign: "center", py: 4 }}>
-                                <CircularProgress size={48} sx={{ mb: 2, color: '#10b981' }} />
-                                <Typography variant="h6" gutterBottom sx={{ color: '#1e293b' }}>
-                                    Processing Payment
-                                </Typography>
-                                <Typography variant="body2" sx={{ color: '#64748b' }}>
-                                    Please wait while we process your payment...
-                                </Typography>
-                            </Box>
-                        ) : (
-                            <Button
-                                variant="outlined"
-                                fullWidth
-                                size="large"
-                                sx={{ 
-                                    py: 2, 
-                                    justifyContent: "flex-start",
-                                    borderRadius: 2,
-                                    borderColor: '#e2e8f0',
-                                    color: '#1e293b',
-                                    "&:hover": { 
-                                        borderColor: '#10b981',
-                                        backgroundColor: '#f0fdf4'
-                                    }
-                                }}
-                                onClick={handleRazorpayPayment}
-                                disabled={cart.length === 0}
+                        cart.map((item) => (
+                            <Box
+                                key={item.barcode}
+                                sx={{ display: "flex", justifyContent: "space-between", gap: 2, py: 1.5, borderTop: 1, borderColor: "divider" }}
                             >
-                                <AccountBalanceWallet sx={{ mr: 2, color: '#10b981' }} />
-                                <Box sx={{ textAlign: "left" }}>
-                                    <Typography variant="body1" fontWeight="600" sx={{ color: '#1e293b' }}>
-                                        Pay with Razorpay
-                                    </Typography>
-                                    <Typography variant="body2" sx={{ color: '#64748b' }}>
-                                        UPI, Cards, Wallets & more
+                                <Box sx={{ minWidth: 0 }}>
+                                    <Typography fontWeight={600}>{item.name}</Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {item.quantity || 1} × <Money value={item.price} />
                                     </Typography>
                                 </Box>
-                            </Button>
+                                <Money value={item.price * (item.quantity || 1)} sx={{ fontWeight: 600 }} />
+                            </Box>
+                        ))
+                    )}
+
+                    <Box sx={{ borderTop: 1, borderColor: "divider", pt: 2 }}>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.75 }}>
+                            <Typography color="text.secondary">Subtotal</Typography>
+                            <Money value={subtotal} />
+                        </Box>
+                        {tax > 0 && (
+                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                                <Typography color="text.secondary">GST added</Typography>
+                                <Money value={tax} />
+                            </Box>
                         )}
-                    </Paper>
-                </Grid>
-            </Grid>
-        </Container>
-    </Box>
-);
+                        {taxIncluded > 0 && (
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                                Prices include GST of <Money value={taxIncluded} />
+                            </Typography>
+                        )}
+                    </Box>
+                </Box>
+
+                {/* Pay */}
+                <Box
+                    component="section"
+                    aria-label="Payment"
+                    sx={{
+                        position: { md: "sticky" },
+                        top: { md: 84 },
+                        backgroundColor: "background.paper",
+                        border: 1,
+                        borderColor: "divider",
+                        borderRadius: "10px",
+                        p: 3,
+                    }}
+                >
+                    <Typography color="text.secondary">Amount to pay</Typography>
+                    <Money value={total} sx={{ display: "block", fontFamily: fonts.serif, fontWeight: 700, fontSize: "2.5rem", lineHeight: 1.2, mb: 2.5 }} />
+
+                    {paymentError && (
+                        <Alert severity="error" sx={{ mb: 2 }}>
+                            {paymentError}
+                        </Alert>
+                    )}
+
+                    <Button
+                        variant="contained"
+                        size="large"
+                        fullWidth
+                        onClick={handleRazorpayPayment}
+                        disabled={cart.length === 0 || processing}
+                    >
+                        {processing ? (
+                            <>
+                                <CircularProgress size={20} color="inherit" sx={{ mr: 1.5 }} />
+                                Waiting for payment
+                            </>
+                        ) : (
+                            "Pay with Razorpay"
+                        )}
+                    </Button>
+
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                        Cards, netbanking and wallets. Razorpay processes the payment, so your card details never reach this store.
+                    </Typography>
+                </Box>
+            </Box>
+        </Box>
+    );
 };
 
 export default CheckoutPage;
+

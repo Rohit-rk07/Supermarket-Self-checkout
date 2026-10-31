@@ -1,3 +1,150 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ---------- Global ---------- */
+:root {
+  color-scheme: light;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: #f2f4ef;
+  color: #14201a;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: #0e4a33;
+  color: #f2f4ef;
+}
+
+/* Visible keyboard focus everywhere */
+:focus-visible {
+  outline: 2px solid #0e4a33;
+  outline-offset: 2px;
+}
+
+/* Prices and totals line up like a printed receipt */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* No one-word last lines; headings break evenly */
+.MuiTypography-root {
+  text-wrap: pretty;
+}
+h1.MuiTypography-root,
+h2.MuiTypography-root,
+h3.MuiTypography-root {
+  text-wrap: balance;
+}
+
+/* ---------- The receipt: the one memorable moment ---------- */
+/* It prints out line by line, then the PAID stamp lands. */
+@keyframes receiptPrint {
+  from {
+    clip-path: inset(-24px -24px 100% -24px);
+    transform: translateY(-8px);
+  }
+  to {
+    clip-path: inset(-24px);
+    transform: translateY(0);
+  }
+}
+
+@keyframes stampIn {
+  0% {
+    opacity: 0;
+    transform: rotate(-7deg) scale(1.9);
+  }
+  55% {
+    opacity: 1;
+    transform: rotate(-7deg) scale(0.94);
+  }
+  100% {
+    opacity: 0.92;
+    transform: rotate(-7deg) scale(1);
+  }
+}
+
+.receipt-print--animate {
+  animation: receiptPrint 1.4s steps(30, end) both;
+}
+
+.receipt-print--animate .receipt-stamp {
+  animation: stampIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1) 1.5s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .receipt-print--animate,
+  .receipt-print--animate .receipt-stamp {
+    animation: none !important;
+  }
+}
+
+/* ---------- Printing a receipt ---------- */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .print-receipt,
+  .print-receipt * {
+    visibility: visible !important;
+  }
+
+  .print-receipt {
+    position: absolute !important;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 360px !important;
+    filter: none !important;
+    animation: none !important;
+    clip-path: none !important;
+  }
+
+  body {
+    background: #fff !important;
+  }
+}
+
+/* ---------- Camera scanner: restyle the library's built-in controls ---------- */
+#reader {
+  border: 1px solid #dce1d8 !important;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+#reader button {
+  font-family: inherit;
+  font-weight: 600;
+  background: #0e4a33;
+  color: #f2f4ef;
+  border: 0;
+  border-radius: 6px;
+  padding: 10px 16px;
+  margin: 6px 0;
+  cursor: pointer;
+}
+
+#reader button:hover {
+  background: #093525;
+}
+
+#reader a,
+#reader__dashboard_section_swaplink {
+  color: #0e4a33 !important;
+}
+
+#reader span,
+#reader select {
+  color: #4b5a52;
+  font-family: inherit;
+}

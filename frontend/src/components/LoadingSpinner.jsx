@@ -1,33 +1,25 @@
 import { Box, CircularProgress, Typography } from "@mui/material";
+import { Wordmark } from "./ui/TopBar";
 
+// Shown between pages while they load: the brand, a thin spinner, one quiet line
 const LoadingSpinner = ({ message = "Loading..." }) => {
     return (
-        <Box 
-            sx={{ 
+        <Box
+            role="status"
+            aria-live="polite"
+            sx={{
                 minHeight: '100vh',
-                backgroundColor: '#f8fafc',
+                backgroundColor: 'background.default',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 2
+                gap: 2.5
             }}
         >
-            <CircularProgress 
-                size={48} 
-                sx={{ 
-                    color: '#10b981' 
-                }} 
-            />
-            <Typography 
-                variant="h6" 
-                sx={{ 
-                    color: '#1e293b',
-                    fontWeight: 500
-                }}
-            >
-                {message}
-            </Typography>
+            <Wordmark sx={{ fontSize: '1.5rem' }} />
+            <CircularProgress size={28} thickness={3} />
+            <Typography color="text.secondary">{message}</Typography>
         </Box>
     );
 };

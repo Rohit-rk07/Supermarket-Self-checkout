@@ -16,6 +16,7 @@ import {
     TextField,
     MenuItem,
     Chip,
+    Button,
     IconButton,
     Tooltip,
     CircularProgress,
@@ -30,14 +31,16 @@ const PAYMENT_FILTERS = [
     { value: "", label: "All orders" },
     { value: "paid", label: "Paid" },
     { value: "pending", label: "Unpaid" },
-    { value: "failed", label: "Failed" }
+    { value: "failed", label: "Failed" },
+    { value: "expired", label: "Expired" }
 ];
 
 const PAYMENT_CHIP = {
     paid: { label: "Paid", color: "#166534", background: "#dcfce7" },
     pending: { label: "Unpaid", color: "#92400e", background: "#fef3c7" },
     failed: { label: "Failed", color: "#991b1b", background: "#fee2e2" },
-    refunded: { label: "Refunded", color: "#1e40af", background: "#dbeafe" }
+    refunded: { label: "Refunded", color: "#1e40af", background: "#dbeafe" },
+    expired: { label: "Expired", color: "#475569", background: "#e2e8f0" }
 };
 
 // Staff see a name and the last 4 digits only
@@ -64,6 +67,9 @@ const StaffOrdersPage = () => {
     const [paymentFilter, setPaymentFilter] = useState("");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [notice, setNotice] = useState(null);
+    const [payments, setPayments] = useState(null);
+    const [checkingId, setCheckingId] = useState(null);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -71,7 +77,15 @@ const StaffOrdersPage = () => {
 
         const headers = { "Authorization": `Bearer ${token}` };
         const query = new URLSearchParams({ page: page + 1, limit: rowsPerPage });
-        if (paymentFilter) query.set("paymentStatus", paymentFilter);
+        // Expired is an order status; Unpaid means waiting for payment and not expired
+        if (paymentFilter === "expired") {
+            query.set("status", "expired");
+        } else if (paymentFilter === "pending") {
+            query.set("paymentStatus", "pending");
+            query.set("status", "pending");
+        } else if (paymentFilter) {
+            query.set("paymentStatus", paymentFilter);
+        }
 
         try {
             const [ordersResponse, statsResponse] = await Promise.all([
@@ -87,6 +101,7 @@ const StaffOrdersPage = () => {
             setOrders(ordersData.data.orders);
             setTotal(ordersData.data.pagination.total);
             setStats(statsData.data.stats);
+            setPayments(statsData.data.payments || null);
         } catch (err) {
             setError(err.message);
         } finally {
@@ -97,6 +112,26 @@ const StaffOrdersPage = () => {
     useEffect(() => {
         if (canView) load();
     }, [canView, load]);
+
+    // Ask Razorpay whether this order was really paid (the server only accepts a captured payment of the exact amount)
+    const checkPayment = async (order) => {
+        setCheckingId(order._id);
+        setNotice(null);
+        try {
+            const response = await fetch(`${API_URL}/${order._id}/reconcile`, {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${token}` }
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || "Could not check the payment");
+            setNotice({ severity: data.result === "NOT_PAID" ? "info" : "success", message: `${order.orderNumber}: ${data.message}` });
+            await load();
+        } catch (err) {
+            setNotice({ severity: "error", message: err.message });
+        } finally {
+            setCheckingId(null);
+        }
+    };
 
     if (!canView) {
         return (
@@ -146,13 +181,23 @@ const StaffOrdersPage = () => {
                 </Box>
 
                 {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
+                {notice && <Alert severity={notice.severity} onClose={() => setNotice(null)} sx={{ mb: 3 }}>{notice.message}</Alert>}
+                {payments && (
+                    <Alert severity={payments.webhookConfigured ? "success" : "warning"} sx={{ mb: 3 }}>
+                        {!payments.webhookConfigured
+                            ? "Payment webhook is off. A shopper who closes the browser right after paying stays Unpaid until you use Check payment."
+                            : payments.lastWebhookAt
+                                ? `Payment webhook is on. Last call received ${new Date(payments.lastWebhookAt).toLocaleString()}.`
+                                : "Payment webhook is on, but no call has arrived yet."}
+                    </Alert>
+                )}
 
                 {stats && (
                     <Grid container spacing={2} sx={{ mb: 3 }}>
                         <Grid item xs={6} md={3}><StatCard label="Total orders" value={stats.totalOrders} /></Grid>
                         <Grid item xs={6} md={3}><StatCard label="Revenue (paid, incl. GST)" value={`₹${Number(stats.totalRevenue).toFixed(2)}`} /></Grid>
                         <Grid item xs={6} md={3}><StatCard label="Unpaid" value={stats.pendingOrders} /></Grid>
-                        <Grid item xs={6} md={3}><StatCard label="Cancelled" value={stats.cancelledOrders} /></Grid>
+                        <Grid item xs={6} md={3}><StatCard label="Expired / cancelled" value={`${stats.expiredOrders ?? 0} / ${stats.cancelledOrders}`} /></Grid>
                     </Grid>
                 )}
 
@@ -168,6 +213,7 @@ const StaffOrdersPage = () => {
                                     <TableCell><strong>Payment</strong></TableCell>
                                     <TableCell><strong>Exit</strong></TableCell>
                                     <TableCell><strong>Placed</strong></TableCell>
+                                    <TableCell><strong>Action</strong></TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
@@ -185,7 +231,10 @@ const StaffOrdersPage = () => {
                                     </TableRow>
                                 ) : (
                                     orders.map((order) => {
-                                        const chip = PAYMENT_CHIP[order.paymentStatus] || PAYMENT_CHIP.pending;
+                                        const chip = order.status === "expired" && order.paymentStatus !== "paid"
+                                            ? PAYMENT_CHIP.expired
+                                            : (PAYMENT_CHIP[order.paymentStatus] || PAYMENT_CHIP.pending);
+                                        const canCheck = order.paymentStatus !== "paid" && order.status !== "cancelled" && Boolean(order.razorpayOrderId);
                                         return (
                                             <TableRow key={order._id} hover>
                                                 <TableCell sx={{ fontFamily: "monospace" }}>
@@ -207,6 +256,13 @@ const StaffOrdersPage = () => {
                                                 </TableCell>
                                                 <TableCell>{exitChip(order)}</TableCell>
                                                 <TableCell>{order.createdAt ? new Date(order.createdAt).toLocaleString() : ""}</TableCell>
+                                                <TableCell>
+                                                    {canCheck && (
+                                                        <Button size="small" variant="outlined" disabled={checkingId === order._id} onClick={() => checkPayment(order)}>
+                                                            {checkingId === order._id ? "Checking..." : "Check payment"}
+                                                        </Button>
+                                                    )}
+                                                </TableCell>
                                             </TableRow>
                                         );
                                     })

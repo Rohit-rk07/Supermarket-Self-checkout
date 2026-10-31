@@ -1,31 +1,32 @@
 import { useEffect, useRef } from "react";
-import { Html5QrcodeScanner,Html5QrcodeScanType } from "html5-qrcode";
-import { Dialog, DialogTitle, DialogContent, Button, Box } from "@mui/material";
+import { Html5QrcodeScanner, Html5QrcodeScanType } from "html5-qrcode";
+import { Dialog, DialogTitle, DialogContent, Button, Box, Typography } from "@mui/material";
 
-const BarcodeScanner = ({ onScan, closeScanner, title = "📸 Scan a Product" }) => {
+const BarcodeScanner = ({ onScan, closeScanner, title = "Scan a product", hint }) => {
     const scannerRef = useRef(null);
 
     useEffect(() => {
         const scannerId = "reader";
 
-        // Wait until the modal is open
+        // Wait until the dialog has put the camera area on the page
         const interval = setInterval(() => {
             const readerElement = document.getElementById(scannerId);
             if (readerElement && !scannerRef.current) {
-                console.log("✅ Initializing scanner...");
                 scannerRef.current = new Html5QrcodeScanner(scannerId, {
                     fps: 10,
                     qrbox: { width: 250, height: 250 },
-                    supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA, Html5QrcodeScanType.SCAN_TYPE_FILE] // 👈 Enable image upload
+                    showTorchButtonIfSupported: true,
+                    supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA, Html5QrcodeScanType.SCAN_TYPE_FILE]
                 });
 
                 scannerRef.current.render(
                     (decodedText) => {
-                        console.log("✅ Scanned:", decodedText);
-                        onScan(decodedText); // Send scanned data to parent
+                        onScan(decodedText); // Send what was scanned to the page
                         closeScanner();
                     },
-                    (error) => console.warn("⚠️ Scan Error:", error)
+                    () => {
+                        // Frames without a readable code are normal; ignore them
+                    }
                 );
 
                 clearInterval(interval);
@@ -35,29 +36,26 @@ const BarcodeScanner = ({ onScan, closeScanner, title = "📸 Scan a Product" })
         return () => {
             clearInterval(interval);
             if (scannerRef.current) {
-                console.log("🛑 Stopping scanner...");
-                scannerRef.current.clear().catch((err) => console.warn("❌ Error clearing scanner:", err));
+                scannerRef.current.clear().catch(() => {});
                 scannerRef.current = null;
             }
         };
     }, [onScan, closeScanner]);
 
     return (
-        <Dialog
-            open
-            onClose={closeScanner}
-            fullWidth
-            maxWidth="sm"
-            disableEnforceFocus
-        >
+        <Dialog open onClose={closeScanner} fullWidth maxWidth="sm" disableEnforceFocus>
             <DialogTitle>{title}</DialogTitle>
             <DialogContent>
-                <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
-                    <div id="reader" style={{ width: "100%", height: "300px" }}></div>
+                <Typography color="text.secondary" sx={{ mb: 2 }}>
+                    {hint || "Hold the barcode inside the frame. If the camera does not work, close this and type the barcode number instead."}
+                </Typography>
+
+                <Box sx={{ display: "flex", justifyContent: "center" }}>
+                    <div id="reader" style={{ width: "100%", minHeight: "300px" }}></div>
                 </Box>
 
-                <Button variant="contained" color="error" fullWidth onClick={closeScanner} sx={{ mt: 2 }}>
-                    ❌ Close Scanner
+                <Button variant="outlined" fullWidth onClick={closeScanner} sx={{ mt: 2 }}>
+                    Close
                 </Button>
             </DialogContent>
         </Dialog>

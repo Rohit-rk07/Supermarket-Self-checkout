@@ -1,361 +1,220 @@
-import { lazy, Suspense, useState } from "react";
-import { 
-  Container, 
-  Box, 
-  Typography, 
-  Card, 
-  CardContent, 
-  Grid, 
-  Fab, 
-  Badge,
-  Paper,
-  Avatar,
-  IconButton
-} from "@mui/material";
-import { 
-  QrCodeScanner as ScanIcon,
-  ShoppingCart as CartIcon,
-  Payment as CheckoutIcon,
-  Person as PersonIcon,
-  Inventory as InventoryIcon,
-  TrendingUp as TrendingIcon,
-} from "@mui/icons-material";
+import { lazy, Suspense, useState, useCallback, useRef } from "react";
+import { Box, Typography, Button, TextField, ButtonBase } from "@mui/material";
+import { QrCodeScanner as ScanIcon, ChevronRight } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
+import TopBar from "../components/ui/TopBar";
+import Toast from "../components/ui/Toast";
+import Money from "../components/ui/Money";
+import { getBasketTotals } from "../utils/money";
+import { tokens } from "../theme/theme";
 
 const BarcodeScanner = lazy(() => import("../components/BarcodeScanner"));
 
+const greeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+};
+
+const ToolRow = ({ title, description, onClick }) => (
+  <ButtonBase
+    onClick={onClick}
+    sx={{
+      width: "100%",
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      textAlign: "left",
+      py: 1.75,
+      borderTop: 1,
+      borderColor: "divider",
+      "&:hover": { backgroundColor: "rgba(20, 32, 26, 0.04)" },
+    }}
+  >
+    <Box>
+      <Typography fontWeight={600}>{title}</Typography>
+      <Typography variant="body2" color="text.secondary">{description}</Typography>
+    </Box>
+    <ChevronRight sx={{ color: "text.secondary" }} />
+  </ButtonBase>
+);
+
 const Dashboard = () => {
   const [scannerOpen, setScannerOpen] = useState(false);
-  const { cart, addToCart, totalItems, subtotal } = useCart();
+  const [manual, setManual] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [toast, setToast] = useState(null);
+  const { cart, addToCart, totalItems } = useCart();
+  const basketTotal = getBasketTotals(cart).total;
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const fetchProduct = async (barcode) => {
+  const isStaff = user?.role === "admin" || user?.role === "staff";
+  const isAdmin = user?.role === "admin";
+  const firstName = (user?.name || "").trim().split(" ")[0];
+
+  // Look a barcode up on the server and put the product in the basket
+  const addByBarcode = async (raw) => {
+    const barcode = String(raw || "").trim();
+    if (!barcode) return false;
+
     try {
       const SERVER_URL = import.meta.env.VITE_SERVER_URL;
       const response = await fetch(`${SERVER_URL}/api/v1/scan/${encodeURIComponent(barcode)}`, {
-        headers: { 'Authorization': `Bearer ${user?.token}` }
+        headers: { Authorization: `Bearer ${user?.token}` },
       });
+      const body = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || errorData.message || "Product not found");
+        throw new Error(body.error || body.message || "We could not find that product.");
       }
 
-      const result = await response.json();
-      
-      // Handle new API response format
-      const product = result.success ? result.data : result;
+      const product = body.success ? body.data : body;
       addToCart(product);
+      setToast({ severity: "success", message: `${product.name} added to your basket.` });
+      return true;
     } catch (error) {
-      console.error('Product fetch error:', error);
-      alert(error.message || "Product not found");
+      setToast({ severity: "error", message: error.message || "We could not find that product." });
+      return false;
     }
   };
 
-  const quickActions = [
-    {
-      title: "Scan Product",
-      icon: <ScanIcon sx={{ fontSize: 32 }} />,
-      color: "#10b981",
-      action: () => setScannerOpen(true),
-      description: "Scan barcode to add items"
-    },
-    {
-      title: "View Cart",
-      icon: <CartIcon sx={{ fontSize: 32 }} />,
-      color: "#3b82f6",
-      action: () => navigate("/cart"),
-      description: `${totalItems} items in cart`,
-      badge: totalItems
-    },
-    {
-      title: "Checkout",
-      icon: <CheckoutIcon sx={{ fontSize: 32 }} />,
-      color: "#f59e0b",
-      action: () => navigate("/checkout"),
-      description: `₹${subtotal.toFixed(2)} total`,
-      disabled: cart.length === 0
-    }
-  ];
+  // The scanner restarts if its callbacks change, so keep them stable
+  const addRef = useRef(addByBarcode);
+  addRef.current = addByBarcode;
+  const handleScan = useCallback((text) => addRef.current(text), []);
+  const closeScanner = useCallback(() => setScannerOpen(false), []);
 
-  // Extra card shown only to admins (the server enforces the role as well)
-  const adminActions = user?.role === "admin" ? [
-    {
-      title: "Manage Products",
-      icon: <InventoryIcon sx={{ fontSize: 32 }} />,
-      color: "#8b5cf6",
-      action: () => navigate("/admin/products"),
-      description: "Add and edit the catalog"
-    },
-    {
-      title: "Manage Staff",
-      icon: <PersonIcon sx={{ fontSize: 32 }} />,
-      color: "#f59e0b",
-      action: () => navigate("/admin/users"),
-      description: "Give people staff or admin access"
-    }
-  ] : [];
-
-  // Extra card for staff and admins: check a shopper's receipt at the exit
-  const staffActions = (user?.role === "admin" || user?.role === "staff") ? [
-    {
-      title: "Verify Receipt",
-      icon: <ScanIcon sx={{ fontSize: 32 }} />,
-      color: "#ef4444",
-      action: () => navigate("/staff/verify"),
-      description: "Scan a receipt QR at the exit"
-    },
-    {
-      title: "All Orders",
-      icon: <CartIcon sx={{ fontSize: 32 }} />,
-      color: "#3b82f6",
-      action: () => navigate("/staff/orders"),
-      description: "Sales and payment status"
-    }
-  ] : [];
-
-  const stats = [
-    { label: "Items in Cart", value: totalItems, icon: <InventoryIcon />, color: "#10b981" },
-    { label: "Cart Total", value: `₹${subtotal.toFixed(2)}`, icon: <TrendingIcon />, color: "#3b82f6" }
-  ];
+  const handleManualSubmit = async (event) => {
+    event.preventDefault();
+    setAdding(true);
+    const added = await addByBarcode(manual);
+    if (added) setManual("");
+    setAdding(false);
+  };
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        backgroundColor: '#f8fafc',
-        pb: 4
-      }}
-    >
-      {/* Header */}
-      <Paper
-        elevation={0}
-        sx={{
-          backgroundColor: 'white',
-          borderBottom: '1px solid #f1f5f9',
-          p: { xs: 2, sm: 3 },
-          borderRadius: 0,
-          mb: 3,
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-        }}
-      >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Box>
-            <Typography variant="h4" fontWeight="700" sx={{ color: '#1e293b' }} gutterBottom>
-              Smart Checkout
-            </Typography>
-            <Typography variant="body1" sx={{ color: '#64748b' }}>
-              Welcome back, {user?.name || 'User'}!
-            </Typography>
-          </Box>
-          <IconButton 
-            onClick={() => navigate('/account')}
-            sx={{ 
-              bgcolor: '#f1f5f9', 
-              '&:hover': { 
-                bgcolor: '#e2e8f0',
-                transform: 'scale(1.05)'
-              },
-              transition: 'all 0.2s ease-in-out'
-            }}
-          >
-            <Avatar sx={{ bgcolor: '#1e293b', width: 40, height: 40 }}>
-              <PersonIcon sx={{ color: 'white' }} />
-            </Avatar>
-          </IconButton>
-        </Box>
-      </Paper>
+    <Box sx={{ minHeight: "100vh", pb: totalItems > 0 ? 14 : 6 }}>
+      <TopBar />
 
-      <Container maxWidth="lg">
-        {/* Stats Cards */}
-        <Grid container spacing={3} sx={{ mb: 4 }}>
-          {stats.map((stat, index) => (
-            <Grid item xs={12} sm={6} key={index}>
-              <Card
-                elevation={0}
-                sx={{
-                  backgroundColor: 'white',
-                  border: '1px solid #f1f5f9',
-                  borderRadius: 2,
-                  transition: 'all 0.2s ease-in-out',
-                  '&:hover': { 
-                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)',
-                    transform: 'translateY(-2px)'
-                  }
-                }}
-              >
-                <CardContent sx={{ p: 3 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Box>
-                      <Typography variant="h3" fontWeight="700" sx={{ color: '#1e293b', mb: 1 }}>
-                        {stat.value}
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 500 }}>
-                        {stat.label}
-                      </Typography>
-                    </Box>
-                    <Box
-                      sx={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 2,
-                        backgroundColor: `${stat.color}15`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: stat.color
-                      }}
-                    >
-                      {stat.icon}
-                    </Box>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-
-        {/* Quick Actions */}
-        <Typography variant="h5" fontWeight="600" sx={{ color: '#1e293b', mb: 3 }}>
-          Quick Actions
+      <Box sx={{ maxWidth: 640, mx: "auto", px: { xs: 2, sm: 3 }, pt: { xs: 4, sm: 6 } }}>
+        <Typography component="h1" variant="h2" sx={{ mb: 1 }}>
+          {greeting()}{firstName ? `, ${firstName}` : ""}.
         </Typography>
-        
-        <Grid container spacing={3}>
-          {[...quickActions, ...adminActions, ...staffActions].map((action, index) => (
-            <Grid item xs={12} sm={6} md={4} key={index}>
-              <Card
-                elevation={0}
-                sx={{
-                  backgroundColor: 'white',
-                  border: '1px solid #f1f5f9',
-                  borderRadius: 2,
-                  cursor: action.disabled ? 'not-allowed' : 'pointer',
-                  opacity: action.disabled ? 0.6 : 1,
-                  transition: 'all 0.2s ease-in-out',
-                  '&:hover': action.disabled ? {} : { 
-                    transform: 'translateY(-4px)',
-                    boxShadow: '0 8px 25px rgba(0, 0, 0, 0.15)',
-                    borderColor: '#e2e8f0'
-                  }
-                }}
-                onClick={action.disabled ? undefined : action.action}
-              >
-                <CardContent sx={{ textAlign: 'center', p: 4 }}>
-                  <Box sx={{ position: 'relative', display: 'inline-block', mb: 3 }}>
-                    <Box
-                      sx={{
-                        width: 64,
-                        height: 64,
-                        borderRadius: 2,
-                        backgroundColor: `${action.color}15`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: action.color,
-                        mx: 'auto'
-                      }}
-                    >
-                      {action.badge ? (
-                        <Badge 
-                          badgeContent={action.badge} 
-                          sx={{
-                            '& .MuiBadge-badge': {
-                              backgroundColor: '#ef4444',
-                              color: 'white'
-                            }
-                          }}
-                        >
-                          {action.icon}
-                        </Badge>
-                      ) : (
-                        action.icon
-                      )}
-                    </Box>
-                  </Box>
-                  <Typography variant="h6" fontWeight="600" sx={{ color: '#1e293b', mb: 1 }}>
-                    {action.title}
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: '#64748b' }}>
-                    {action.description}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
+        <Typography color="text.secondary" sx={{ mb: 4 }}>
+          Scan each item as you shop. Pay when you are done.
+        </Typography>
 
-        {/* Recent Activity */}
+        <Button
+          variant="contained"
+          size="large"
+          fullWidth
+          startIcon={<ScanIcon />}
+          onClick={() => setScannerOpen(true)}
+          sx={{ minHeight: 64, fontSize: "1.125rem" }}
+        >
+          Scan an item
+        </Button>
+
+        <Box component="form" onSubmit={handleManualSubmit} sx={{ mt: 2.5, display: "flex", gap: 1.5 }}>
+          <TextField
+            fullWidth
+            size="small"
+            label="Or type the barcode number"
+            value={manual}
+            onChange={(event) => setManual(event.target.value)}
+            inputProps={{ inputMode: "numeric", "aria-label": "Barcode number" }}
+          />
+          <Button type="submit" variant="outlined" disabled={!manual.trim() || adding} sx={{ flexShrink: 0 }}>
+            Add
+          </Button>
+        </Box>
+
         {cart.length > 0 && (
-          <Box sx={{ mt: 4 }}>
-            <Typography variant="h5" fontWeight="600" sx={{ color: '#1e293b', mb: 3 }}>
-              Recent Items
-            </Typography>
-            <Card
-              elevation={0}
-              sx={{
-                backgroundColor: 'white',
-                border: '1px solid #f1f5f9',
-                borderRadius: 2
-              }}
-            >
-              <CardContent sx={{ p: 3 }}>
-                {cart.slice(0, 3).map((item, index) => (
-                  <Box 
-                    key={index}
-                    sx={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center',
-                      py: 2,
-                      borderBottom: index < 2 ? '1px solid #f1f5f9' : 'none'
-                    }}
-                  >
-                    <Box>
-                      <Typography variant="body1" fontWeight="600" sx={{ color: '#1e293b' }}>
-                        {item.name || item.barcode}
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: '#64748b' }}>
-                        Qty: {item.quantity}
-                      </Typography>
-                    </Box>
-                    <Typography variant="h6" fontWeight="600" sx={{ color: '#10b981' }}>
-                      ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                    </Typography>
-                  </Box>
-                ))}
-              </CardContent>
-            </Card>
+          <Box sx={{ mt: 6 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", mb: 1 }}>
+              <Typography component="h2" variant="h5">Your basket</Typography>
+              <Button variant="text" size="small" onClick={() => navigate("/cart")}>Open basket</Button>
+            </Box>
+            {cart.slice(0, 5).map((item) => (
+              <Box
+                key={item.barcode}
+                sx={{ display: "flex", justifyContent: "space-between", gap: 2, py: 1.5, borderTop: 1, borderColor: "divider" }}
+              >
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography fontWeight={600} noWrap>{item.name || item.barcode}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {item.quantity || 1} × <Money value={item.price || 0} />
+                  </Typography>
+                </Box>
+                <Money value={(item.price || 0) * (item.quantity || 1)} sx={{ fontWeight: 600 }} />
+              </Box>
+            ))}
+            {cart.length > 5 && (
+              <Typography variant="body2" color="text.secondary" sx={{ pt: 1.5, borderTop: 1, borderColor: "divider" }}>
+                and {cart.length - 5} more
+              </Typography>
+            )}
           </Box>
         )}
-      </Container>
 
-      {/* Floating Action Button for Quick Scan */}
-      <Fab
-        size="large"
-        sx={{
-          position: 'fixed',
-          bottom: 24,
-          right: 24,
-          backgroundColor: '#10b981',
-          color: 'white',
-          boxShadow: '0 8px 25px rgba(16, 185, 129, 0.3)',
-          '&:hover': {
-            backgroundColor: '#059669',
-            transform: 'scale(1.1)'
-          },
-          transition: 'all 0.2s ease-in-out'
-        }}
-        onClick={() => setScannerOpen(true)}
-      >
-        <ScanIcon />
-      </Fab>
+        {isStaff && (
+          <Box sx={{ mt: 7 }}>
+            <Typography component="h2" variant="h5" sx={{ mb: 1 }}>Store tools</Typography>
+            <ToolRow title="Verify a receipt" description="Check a shopper's QR code at the exit" onClick={() => navigate("/staff/verify")} />
+            <ToolRow title="All orders" description="Sales, payments and exits" onClick={() => navigate("/staff/orders")} />
+            {isAdmin && (
+              <>
+                <ToolRow title="Manage products" description="Add, edit and import the catalog" onClick={() => navigate("/admin/products")} />
+                <ToolRow title="Manage staff" description="Give people staff or admin access" onClick={() => navigate("/admin/users")} />
+              </>
+            )}
+            <Box sx={{ borderTop: 1, borderColor: "divider" }} />
+          </Box>
+        )}
+      </Box>
+
+      {/* Basket bar: always in reach once something is scanned */}
+      {totalItems > 0 && (
+        <Box
+          sx={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: tokens.forest,
+            color: "#FFFFFF",
+            zIndex: 20,
+          }}
+        >
+          <Box sx={{ maxWidth: 640, mx: "auto", px: { xs: 2, sm: 3 }, py: 1.75, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
+            <Box>
+              <Typography sx={{ color: "rgba(255,255,255,0.8)", fontSize: "0.8125rem" }}>
+                {totalItems} {totalItems === 1 ? "item" : "items"} in your basket
+              </Typography>
+              <Money value={basketTotal} sx={{ fontWeight: 700, fontSize: "1.25rem" }} />
+              <Typography component="span" sx={{ color: "rgba(255,255,255,0.8)", fontSize: "0.8125rem", ml: 1 }}>
+                total
+              </Typography>
+            </Box>
+            <Button
+              onClick={() => navigate("/cart")}
+              sx={{ backgroundColor: "#F2F4EF", color: tokens.ink, "&:hover": { backgroundColor: "#FFFFFF" }, px: 3 }}
+            >
+              Review and pay
+            </Button>
+          </Box>
+        </Box>
+      )}
+
+      <Toast toast={toast} onClose={() => setToast(null)} offset={totalItems > 0 ? 72 : 0} />
 
       {scannerOpen && (
         <Suspense fallback={null}>
-          <BarcodeScanner onScan={fetchProduct} closeScanner={() => setScannerOpen(false)} />
+          <BarcodeScanner onScan={handleScan} closeScanner={closeScanner} />
         </Suspense>
       )}
     </Box>
@@ -363,3 +222,5 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
+
+

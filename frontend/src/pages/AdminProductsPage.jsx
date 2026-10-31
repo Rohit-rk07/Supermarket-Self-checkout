@@ -22,14 +22,18 @@ import {
     Snackbar,
     Alert,
     CircularProgress,
-    Tooltip
+    Tooltip,
+    Checkbox,
+    FormControlLabel,
+    MenuItem
 } from "@mui/material";
 import { Add, Edit, Delete, ArrowBack, UploadFile, Download } from "@mui/icons-material";
 import InputAdornment from "@mui/material/InputAdornment";
 import { useAuth } from "../context/AuthContext";
 
 const API_URL = `${import.meta.env.VITE_SERVER_URL}/api/v1/products`;
-const EMPTY_FORM = { barcode: "", name: "", price: "", category: "General", stock: "0" };
+const EMPTY_FORM = { barcode: "", name: "", price: "", category: "General", stock: "0", trackStock: false, gstRate: "5", taxInclusive: true };
+const GST_RATES = [0, 5, 12, 18, 28];
 
 // Minimal CSV parser: handles quoted fields, escaped quotes and Windows line endings
 const parseCsv = (text) => {
@@ -75,7 +79,8 @@ const parseCsv = (text) => {
 };
 
 // Turn parsed CSV rows into product objects; blank optional cells are left out
-const CSV_COLUMNS = ["barcode", "name", "price", "category", "stock"];
+// Header (lower case) -> field name
+const CSV_COLUMNS = { barcode: "barcode", name: "name", price: "price", category: "category", stock: "stock", trackstock: "trackStock", gstrate: "gstRate", taxinclusive: "taxInclusive" };
 
 const csvToProducts = (rows) => {
     const [header, ...body] = rows;
@@ -87,7 +92,7 @@ const csvToProducts = (rows) => {
         const product = {};
         columns.forEach((column, index) => {
             const value = (cells[index] ?? "").trim();
-            if (CSV_COLUMNS.includes(column) && value !== "") product[column] = value;
+            if (CSV_COLUMNS[column] && value !== "") product[CSV_COLUMNS[column]] = value;
         });
         return product;
     });
@@ -106,6 +111,7 @@ const AdminProductsPage = () => {
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(10);
     const [loading, setLoading] = useState(true);
+    const [lowStockOnly, setLowStockOnly] = useState(false);
 
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingBarcode, setEditingBarcode] = useState(null); // null = adding a new product
@@ -133,7 +139,8 @@ const AdminProductsPage = () => {
     const fetchProducts = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await fetch(`${API_URL}?page=${page + 1}&limit=${rowsPerPage}`, {
+            const lowStockQuery = lowStockOnly ? "&lowStock=true" : "";
+            const response = await fetch(`${API_URL}?page=${page + 1}&limit=${rowsPerPage}${lowStockQuery}`, {
                 headers: authHeaders()
             });
             const data = await response.json();
@@ -146,7 +153,7 @@ const AdminProductsPage = () => {
         } finally {
             setLoading(false);
         }
-    }, [page, rowsPerPage, authHeaders]);
+    }, [page, rowsPerPage, lowStockOnly, authHeaders]);
 
     useEffect(() => {
         if (isAdmin) fetchProducts();
@@ -166,7 +173,11 @@ const AdminProductsPage = () => {
             name: product.name,
             price: String(product.price),
             category: product.category || "General",
-            stock: String(product.stock ?? 0)
+            stock: String(product.stock ?? 0),
+            trackStock: product.trackStock === true,
+            // Products saved before tax settings existed were sold at 18% added on top
+            gstRate: String(product.gstRate ?? 18),
+            taxInclusive: product.taxInclusive ?? false
         });
         setErrors({});
         setDialogOpen(true);
@@ -188,7 +199,7 @@ const AdminProductsPage = () => {
         if (form.price === "" || Number.isNaN(price) || price < 0 || price > 10000) {
             nextErrors.price = "Price must be between 0 and 10000";
         }
-        if (!Number.isInteger(stock) || stock < 0) nextErrors.stock = "Stock must be a whole number, 0 or more";
+        if (form.trackStock && (form.stock === "" || !Number.isInteger(stock) || stock < 0)) nextErrors.stock = "Stock must be a whole number, 0 or more";
 
         setErrors(nextErrors);
         return Object.keys(nextErrors).length === 0;
@@ -203,7 +214,10 @@ const AdminProductsPage = () => {
             name: form.name.trim(),
             price: Number(form.price),
             category: form.category.trim() || "General",
-            stock: Number(form.stock)
+            stock: Number(form.stock) || 0,
+            trackStock: form.trackStock,
+            gstRate: Number(form.gstRate),
+            taxInclusive: form.taxInclusive
         };
 
         try {
@@ -317,7 +331,7 @@ const AdminProductsPage = () => {
     };
 
     const downloadTemplate = () => {
-        const sample = "barcode,name,price,category,stock\n1234567890123,Apple,120,Fruits,100\n2345678901234,Banana,60,Fruits,150\n";
+        const sample = "barcode,name,price,category,stock,trackStock,gstRate,taxInclusive\n1234567890123,Apple,120,Fruits,100,yes,5,yes\n2345678901234,Banana,60,Fruits,150,no,0,yes\n";
         const url = URL.createObjectURL(new Blob([sample], { type: "text/csv" }));
         const link = document.createElement("a");
         link.href = url;
@@ -374,6 +388,19 @@ const AdminProductsPage = () => {
                     <Button startIcon={<Download />} onClick={downloadTemplate}>
                         Download template
                     </Button>
+                    <FormControlLabel
+                        sx={{ ml: { sm: "auto" } }}
+                        control={
+                            <Checkbox
+                                checked={lowStockOnly}
+                                onChange={(event) => {
+                                    setLowStockOnly(event.target.checked);
+                                    setPage(0);
+                                }}
+                            />
+                        }
+                        label="Low stock only"
+                    />
                 </Box>
 
                 <Paper elevation={0} sx={{ border: "1px solid #f1f5f9", borderRadius: 2 }}>
@@ -384,6 +411,7 @@ const AdminProductsPage = () => {
                                     <TableCell><strong>Barcode</strong></TableCell>
                                     <TableCell><strong>Name</strong></TableCell>
                                     <TableCell><strong>Category</strong></TableCell>
+                                    <TableCell><strong>GST</strong></TableCell>
                                     <TableCell align="right"><strong>Price (₹)</strong></TableCell>
                                     <TableCell align="right"><strong>Stock</strong></TableCell>
                                     <TableCell align="right"><strong>Actions</strong></TableCell>
@@ -392,14 +420,16 @@ const AdminProductsPage = () => {
                             <TableBody>
                                 {loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
+                                        <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
                                             <CircularProgress size={32} sx={{ color: "#10b981" }} />
                                         </TableCell>
                                     </TableRow>
                                 ) : products.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} align="center" sx={{ py: 6, color: "#64748b" }}>
-                                            No products yet. Click "Add product" to create the first one.
+                                        <TableCell colSpan={7} align="center" sx={{ py: 6, color: "#64748b" }}>
+                                            {lowStockOnly
+                                                ? "No tracked product is running low."
+                                                : "No products yet. Click \"Add product\" to create the first one."}
                                         </TableCell>
                                     </TableRow>
                                 ) : (
@@ -408,8 +438,13 @@ const AdminProductsPage = () => {
                                             <TableCell sx={{ fontFamily: "monospace" }}>{product.barcode}</TableCell>
                                             <TableCell>{product.name}</TableCell>
                                             <TableCell>{product.category}</TableCell>
+                                            <TableCell>
+                                                {(product.gstRate ?? 18)}% {(product.taxInclusive ?? false) ? "included" : "added"}
+                                            </TableCell>
                                             <TableCell align="right">{Number(product.price).toFixed(2)}</TableCell>
-                                            <TableCell align="right">{product.stock ?? 0}</TableCell>
+                                            <TableCell align="right" sx={product.trackStock === true && (product.stock ?? 0) <= 5 ? { color: "error.main", fontWeight: 600 } : undefined}>
+                                                {product.trackStock === true ? (product.stock ?? 0) : "Not tracked"}
+                                            </TableCell>
                                             <TableCell align="right">
                                                 <Tooltip title="Edit">
                                                     <IconButton onClick={() => openEditDialog(product)}>
@@ -487,13 +522,43 @@ const AdminProductsPage = () => {
                         value={form.category}
                         onChange={handleChange("category")}
                     />
+                    <FormControlLabel
+                        control={
+                            <Checkbox
+                                checked={form.trackStock}
+                                onChange={(event) => setForm((prev) => ({ ...prev, trackStock: event.target.checked }))}
+                            />
+                        }
+                        label="Track stock for this product"
+                    />
                     <TextField
-                        label="Stock"
+                        label="Units in stock"
                         type="number"
                         value={form.stock}
                         onChange={handleChange("stock")}
+                        disabled={!form.trackStock}
                         error={!!errors.stock}
-                        helperText={errors.stock}
+                        helperText={errors.stock || (form.trackStock ? "Shoppers cannot buy more than this. Stock drops when an order is paid." : "Turn on tracking to limit how many can be sold")}
+                    />
+                    <TextField
+                        select
+                        label="GST rate"
+                        value={form.gstRate}
+                        onChange={handleChange("gstRate")}
+                        helperText="Pick the rate that applies to this product"
+                    >
+                        {GST_RATES.map((rate) => (
+                            <MenuItem key={rate} value={String(rate)}>{rate}%</MenuItem>
+                        ))}
+                    </TextField>
+                    <FormControlLabel
+                        control={
+                            <Checkbox
+                                checked={form.taxInclusive}
+                                onChange={(event) => setForm((prev) => ({ ...prev, taxInclusive: event.target.checked }))}
+                            />
+                        }
+                        label="The shelf price already includes GST"
                     />
                 </DialogContent>
                 <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -514,7 +579,7 @@ const AdminProductsPage = () => {
                 <DialogTitle>Import products?</DialogTitle>
                 <DialogContent>
                     <Typography>
-                        {importPlan?.products.length} rows found in {importPlan?.fileName}. New barcodes are added; barcodes that already exist are updated with the name, price, category and stock in the file.
+                        {importPlan?.products.length} rows found in {importPlan?.fileName}. New barcodes are added; barcodes that already exist are updated with the name, price, category, stock and tax settings in the file.
                     </Typography>
                 </DialogContent>
                 <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -586,3 +651,4 @@ const AdminProductsPage = () => {
 };
 
 export default AdminProductsPage;
+
