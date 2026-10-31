@@ -26,6 +26,11 @@ if (missingEnvVars.length > 0) {
     process.exit(1);
 }
 
+// Without the webhook secret, a shopper who closes the browser right after paying is never marked paid automatically
+if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
+    logger.warn('RAZORPAY_WEBHOOK_SECRET is not set: the payment webhook is off. Paid orders are only confirmed when the shopper\'s browser finishes, or when staff use Check payment.');
+}
+
 const app = express();
 let isReady = false;
 let isDBConnecting = false;

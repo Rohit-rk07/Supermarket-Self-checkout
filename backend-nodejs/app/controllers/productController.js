@@ -1,4 +1,5 @@
 import Product from '../models/Product.js';
+import { taxFor } from '../utils/pricing.js';
 import { productSchema } from '../middleware/validation.js';
 import logger from '../utils/logger.js';
 
@@ -21,12 +22,25 @@ export const getProductByBarcode = async (req, res, next) => {
     }
     
     logger.info('Product found', { barcode, productName: product.name });
+
+    // Stock only matters for products the shop tracks; those cannot be scanned once they run out
+    if (product.trackStock === true && (product.stock ?? 0) <= 0) {
+      return res.status(409).json({
+        success: false,
+        error: `${product.name} is out of stock`,
+        details: `${product.name} (${barcode}) has no stock left`,
+        timestamp: new Date().toISOString()
+      });
+    }
     res.json({
       success: true,
       data: {
         name: product.name,
         price: product.price,
         barcode: product.barcode,
+        gstRate: taxFor(product).rate,
+        taxInclusive: taxFor(product).inclusive,
+        trackStock: product.trackStock === true,
         category: product.category,
         stock: product.stock
       },
@@ -40,7 +54,7 @@ export const getProductByBarcode = async (req, res, next) => {
 // Create new product
 export const createProduct = async (req, res, next) => {
   try {
-    const { barcode, name, price, category, stock } = req.body;
+    const { barcode, name, price, category, stock, gstRate, taxInclusive, trackStock } = req.body;
     
     logger.dbLog('CREATE', 'products', { barcode, name });
     const existing = await Product.findOne({ barcode });
@@ -57,6 +71,10 @@ export const createProduct = async (req, res, next) => {
     const details = { name, price, isActive: true };
     if (category !== undefined) details.category = category;
     if (stock !== undefined) details.stock = stock;
+    // New products default to a tax-inclusive 5% price (usual for packaged food); admins set the right rate
+    details.gstRate = gstRate !== undefined ? gstRate : 5;
+    details.taxInclusive = taxInclusive !== undefined ? taxInclusive : true;
+    details.trackStock = trackStock === true;
     const product = existing || new Product({ barcode });
     product.set(details);
     await product.save();
@@ -88,9 +106,14 @@ export const getAllProducts = async (req, res, next) => {
     
     logger.dbLog('FIND_ALL', 'products', { page, limit });
     const activeProductsQuery = { isActive: true };
+    // lowStock=true lists tracked products that are nearly out
+    if (req.query.lowStock === 'true') {
+      activeProductsQuery.trackStock = true;
+      activeProductsQuery.stock = { $lte: LOW_STOCK_LEVEL };
+    }
     const [products, total] = await Promise.all([
       Product.find(activeProductsQuery)
-        .select('barcode name price category stock createdAt')
+        .select('barcode name price category stock trackStock gstRate taxInclusive createdAt')
         .skip(skip)
         .limit(limit)
         .sort({ createdAt: -1 })
@@ -157,6 +180,17 @@ export const updateProduct = async (req, res, next) => {
 // invalid rows are skipped and reported back, so one bad row never blocks the rest.
 const MAX_IMPORT_ROWS = 500;
 
+// Tracked products at or below this many units show up in the low-stock list
+const LOW_STOCK_LEVEL = 5;
+
+// A new product from a file that has no tax columns gets the same defaults as the Add form
+const insertDefaults = (details) => {
+  const defaults = {};
+  if (details.gstRate === undefined) defaults.gstRate = 5;
+  if (details.taxInclusive === undefined) defaults.taxInclusive = true;
+  return Object.keys(defaults).length > 0 ? { $setOnInsert: defaults } : {};
+};
+
 export const importProducts = async (req, res, next) => {
   try {
     const rows = req.body?.products;
@@ -198,7 +232,7 @@ export const importProducts = async (req, res, next) => {
         valid.map(({ barcode, ...details }) => ({
           updateOne: {
             filter: { barcode },
-            update: { $set: { ...details, isActive: true } },
+            update: { $set: { ...details, isActive: true }, ...insertDefaults(details) },
             upsert: true
           }
         }))

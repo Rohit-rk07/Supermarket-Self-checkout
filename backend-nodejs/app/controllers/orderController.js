@@ -1,6 +1,8 @@
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
-import { computeTotals } from '../utils/pricing.js';
+import Setting from '../models/Setting.js';
+import { priceBasket, taxFor } from '../utils/pricing.js';
+import { expireStaleOrders } from '../utils/orderExpiry.js';
 
 // Create a new order. It starts as pending/unpaid; payment is handled in paymentController.
 // The client sends only barcodes and quantities: every price comes from the database.
@@ -21,7 +23,6 @@ export const createOrder = async (req, res) => {
 
     // Validate items and calculate totals
     const orderItems = [];
-    let itemsTotal = 0;
 
     const barcodes = [...new Set(items.map(item => item.barcode))];
     const products = await Product.find({ barcode: { $in: barcodes }, isActive: true }).lean();
@@ -37,9 +38,22 @@ export const createOrder = async (req, res) => {
       }
 
       const quantity = item.quantity || 1;
-      const subtotal = product.price * quantity;
+      // Stock only limits products the shop tracks
+      if (product.trackStock === true && (product.stock ?? 0) < quantity) {
+        return res.status(409).json({
+          success: false,
+          message: (product.stock ?? 0) <= 0
+            ? `${product.name} is out of stock`
+            : `Only ${product.stock} of ${product.name} left`
+        });
+      }
+
+      const subtotal = Math.round(product.price * quantity * 100) / 100;
+      const tax = taxFor(product);
 
       orderItems.push({
+        gstRate: tax.rate,
+        taxInclusive: tax.inclusive,
         productId: product._id,
         barcode: product.barcode,
         name: product.name,
@@ -48,11 +62,11 @@ export const createOrder = async (req, res) => {
         subtotal
       });
 
-      itemsTotal += subtotal;
+      // (the order's totals are worked out once all lines are priced)
     }
 
     // Tax is applied on the server so the saved total is exactly what Razorpay will charge
-    const totals = computeTotals(itemsTotal);
+    const totals = priceBasket(orderItems);
 
     // Generate order number
     const timestamp = Date.now().toString(36);
@@ -66,6 +80,7 @@ export const createOrder = async (req, res) => {
       items: orderItems,
       subtotal: totals.subtotal,
       tax: totals.tax,
+      taxIncluded: totals.taxIncluded,
       total: totals.total,
       orderNumber,
       notes
@@ -94,6 +109,7 @@ export const createOrder = async (req, res) => {
 export const getUserOrders = async (req, res) => {
   try {
     const userId = req.user._id; // Set by middleware for both regular and demo users
+    await expireStaleOrders();
 
     const { page = 1, limit = 10, status } = req.query;
 
@@ -246,6 +262,7 @@ export const cancelOrder = async (req, res) => {
 // Get all orders (admin only)
 export const getAllOrders = async (req, res) => {
   try {
+    await expireStaleOrders();
     const { page = 1, limit = 10, status, paymentStatus } = req.query;
 
     const query = {};
@@ -253,7 +270,7 @@ export const getAllOrders = async (req, res) => {
     if (paymentStatus) query.paymentStatus = paymentStatus;
 
     const orders = await Order.find(query)
-      .select('orderNumber total status paymentStatus userPhone userName items createdAt paidAt exitedAt')
+      .select('orderNumber total status paymentStatus razorpayOrderId userPhone userName items createdAt paidAt exitedAt')
       .populate('userId', 'name phoneNumber')
       .populate('items.productId', 'name price category')
       .sort({ createdAt: -1 })
@@ -376,8 +393,12 @@ export const confirmExit = async (req, res) => {
 // Get order statistics (admin only)
 export const getOrderStats = async (req, res) => {
   try {
+    await expireStaleOrders();
     const totalOrders = await Order.countDocuments();
-    const pendingOrders = await Order.countDocuments({ paymentStatus: 'pending' });
+    // Unpaid = waiting for payment and not expired or cancelled
+    const pendingOrders = await Order.countDocuments({ paymentStatus: 'pending', status: 'pending' });
+    const expiredOrders = await Order.countDocuments({ status: 'expired' });
+    const lastWebhook = await Setting.findOne({ key: 'lastWebhookAt' }).lean();
     const completedOrders = await Order.countDocuments({ status: 'completed' });
     const cancelledOrders = await Order.countDocuments({ status: 'cancelled' });
 
@@ -398,11 +419,16 @@ export const getOrderStats = async (req, res) => {
         stats: {
           totalOrders,
           pendingOrders,
+          expiredOrders,
           completedOrders,
           cancelledOrders,
           totalRevenue: totalRevenue[0]?.total || 0
         },
-        recentOrders
+        recentOrders,
+        payments: {
+          webhookConfigured: Boolean(process.env.RAZORPAY_WEBHOOK_SECRET),
+          lastWebhookAt: lastWebhook?.value || null
+        }
       }
     });
   } catch (error) {

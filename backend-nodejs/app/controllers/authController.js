@@ -1,29 +1,27 @@
 import User from '../models/User.js';
-import { DEVELOPMENT_DEMO_USER_ID, generateJWT } from '../middleware/auth.js';
+import { generateJWT, isDemoEnabled, generateDemoToken, buildDemoUser } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
 
 export const demoLogin = (req, res) => {
-  if (process.env.NODE_ENV !== 'development') {
-    return res.status(404).json({ success: false, message: 'Not found' });
+  if (!isDemoEnabled()) {
+    return res.status(404).json({ success: false, message: 'Demo mode is not available' });
   }
 
-  const user = {
-    _id: DEVELOPMENT_DEMO_USER_ID,
-    phoneNumber: '+919999999999',
-    name: 'Demo User',
-    email: 'demo@example.com',
-    role: 'customer',
-    isPhoneVerified: true,
-    isDemo: true
-  };
+  // Every demo visitor gets their own throwaway identity
+  const { id, token } = generateDemoToken();
 
   res.json({
     success: true,
     data: {
-      token: generateJWT(user._id),
-      user
+      token,
+      user: buildDemoUser(id)
     }
   });
+};
+
+// Tells the login screen what this deployment offers, so a visitor is never left stuck
+export const getAuthConfig = (req, res) => {
+  res.json({ success: true, data: { demoEnabled: isDemoEnabled() } });
 };
 
 // Send OTP to phone number

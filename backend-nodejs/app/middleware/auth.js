@@ -1,7 +1,43 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import User from '../models/User.js';
 
-export const DEVELOPMENT_DEMO_USER_ID = 'development-demo-user';
+// ---- Demo shoppers ----
+// A demo shopper has no database record. Each demo login gets its own id inside the token,
+// so visitors never see each other's basket or receipts.
+export const DEMO_ID_PREFIX = 'demo-';
+
+// The demo is available in development, or when ENABLE_PUBLIC_DEMO=true,
+// and it is never available unless Razorpay is in test mode.
+export const isDemoEnabled = () => {
+  if (process.env.NODE_ENV === 'development') return true;
+  if (process.env.ENABLE_PUBLIC_DEMO !== 'true') return false;
+  return /^rzp_test_/.test(process.env.RAZORPAY_KEY_ID || '');
+};
+
+export const isDemoUserId = (userId) =>
+  typeof userId === 'string' && userId.startsWith(DEMO_ID_PREFIX);
+
+export const buildDemoUser = (id) => {
+  // A stable fake phone number derived from the id keeps the basket and receipts consistent
+  const digits = String(parseInt(id.slice(DEMO_ID_PREFIX.length), 16) % 100000).padStart(5, '0');
+  return {
+    _id: id,
+    name: 'Demo User',
+    email: 'demo@example.com',
+    phoneNumber: `+9199990${digits}`,
+    isActive: true,
+    isPhoneVerified: true,
+    role: 'customer',
+    isDemo: true
+  };
+};
+
+export const generateDemoToken = () => {
+  const id = DEMO_ID_PREFIX + crypto.randomBytes(4).toString('hex');
+  const token = jwt.sign({ userId: id }, process.env.JWT_SECRET, { expiresIn: '12h' });
+  return { id, token };
+};
 
 // JWT Authentication Middleware
 export const authenticateJWT = async (req, res, next) => {
@@ -27,18 +63,8 @@ export const authenticateJWT = async (req, res, next) => {
     // Verify JWT token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    if (
-      process.env.NODE_ENV === 'development' &&
-      decoded.userId === DEVELOPMENT_DEMO_USER_ID
-    ) {
-      req.user = {
-        _id: DEVELOPMENT_DEMO_USER_ID,
-        name: 'Demo User',
-        phoneNumber: '+919999999999',
-        isActive: true,
-        role: 'customer',
-        isDemo: true
-      };
+    if (isDemoEnabled() && isDemoUserId(decoded.userId)) {
+      req.user = buildDemoUser(decoded.userId);
       return next();
     }
     
@@ -55,7 +81,7 @@ export const authenticateJWT = async (req, res, next) => {
     req.user = user;
     next();
   } catch (error) {
-    if (error.name === 'JsonWebTokenError') {
+    if (error.name === 'JsonWebTokenError' || error.name === 'CastError') {
       return res.status(401).json({ 
         success: false, 
         message: 'Invalid token' 

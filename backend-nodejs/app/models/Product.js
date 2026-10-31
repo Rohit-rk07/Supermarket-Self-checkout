@@ -27,6 +27,18 @@ const productSchema = new mongoose.Schema({
     default: 'General',
     trim: true
   },
+// Tax: left unset on products saved before this existed (they keep the original 18% added on top)
+  gstRate: {
+    type: Number,
+    enum: { values: [0, 5, 12, 18, 28], message: 'GST rate must be 0, 5, 12, 18 or 28' }
+  },
+  taxInclusive: {
+    type: Boolean
+  },
+  // Stock only matters for products the shop chooses to track; others sell without limit
+  trackStock: {
+    type: Boolean
+  },
   stock: {
     type: Number,
     default: 0,

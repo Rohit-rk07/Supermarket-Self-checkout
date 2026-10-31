@@ -3,6 +3,9 @@ import crypto from 'crypto';
 import mongoose from 'mongoose';
 import logger from '../utils/logger.js';
 import Order from '../models/Order.js';
+import Product from '../models/Product.js';
+import Setting from '../models/Setting.js';
+import { PENDING_ORDER_MINUTES } from '../utils/orderExpiry.js';
 
 // NOTE: Do NOT initialize Razorpay at module load time, because dotenv may not
 // be configured yet when this file is imported. Instead, create the client
@@ -59,6 +62,24 @@ const isValidWebhookSignature = (rawBody, signature) => {
 };
 
 // Mark an order paid. Safe to call twice (verify-payment and the webhook both call it).
+// Stock falls only the first time an order becomes paid, and only for products the shop tracks.
+const reduceStock = async (items) => {
+  const operations = (items || [])
+    .filter((item) => item.productId)
+    .map((item) => ({
+      updateOne: {
+        filter: { _id: item.productId, trackStock: true },
+        update: { $inc: { stock: -(item.quantity || 1) } }
+      }
+    }));
+
+  if (operations.length === 0) return;
+
+  await Product.bulkWrite(operations);
+  // Two shoppers can buy the last unit at the same moment; never show negative stock
+  await Product.updateMany({ trackStock: true, stock: { $lt: 0 } }, { $set: { stock: 0 } });
+};
+
 const markOrderPaid = async (filter, { paymentId, signature }) => {
   const update = {
     paymentStatus: 'paid',
@@ -76,7 +97,12 @@ const markOrderPaid = async (filter, { paymentId, signature }) => {
   );
 
   // Already paid earlier: return the existing order
-  return updated || Order.findOne(filter);
+  if (updated) {
+    await reduceStock(updated.items);
+    return updated;
+  }
+
+  return Order.findOne(filter);
 };
 
 // Create a Razorpay order for an order that was already saved as pending.
@@ -112,6 +138,19 @@ export const createOrder = async (req, res, next) => {
 
     if (order.status === 'cancelled') {
       return res.status(400).json({ success: false, message: 'Order was cancelled' });
+    }
+
+    // Unpaid orders go stale after PENDING_ORDER_MINUTES; the shopper must check out again
+    const isTooOld = Date.now() - new Date(order.createdAt).getTime() > PENDING_ORDER_MINUTES * 60 * 1000;
+    if (order.status === 'expired' || (order.status === 'pending' && isTooOld)) {
+      if (order.status !== 'expired') {
+        order.status = 'expired';
+        await order.save();
+      }
+      return res.status(400).json({
+        success: false,
+        message: 'This order expired because it was not paid in time. Go back to your basket and check out again.'
+      });
     }
 
     const amountInPaise = Math.round(order.total * 100);
@@ -205,6 +244,9 @@ export const handleWebhook = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid signature' });
     }
 
+    // Remember when a valid webhook last arrived so admins can see the webhook is live
+    await Setting.updateOne({ key: 'lastWebhookAt' }, { $set: { value: new Date() } }, { upsert: true });
+
     const { event, payload } = req.body;
     const payment = payload?.payment?.entity;
     const razorpayOrderId = payment?.order_id || payload?.order?.entity?.id;
@@ -227,5 +269,60 @@ export const handleWebhook = async (req, res) => {
     logger.error('Webhook processing error', { error });
     // A 500 makes Razorpay retry the webhook later
     res.status(500).json({ success: false, message: 'Webhook processing failed' });
+  }
+};
+
+// Staff: ask Razorpay whether an unpaid order was really paid, and mark it paid if so.
+// Only a captured payment of exactly the order amount counts.
+export const reconcileOrder = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+
+    if (!mongoose.isValidObjectId(orderId)) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+    if (order.paymentStatus === 'paid') {
+      return res.json({ success: true, result: 'ALREADY_PAID', message: 'This order is already paid', data: order });
+    }
+    if (!order.razorpayOrderId) {
+      return res.status(400).json({ success: false, message: 'No payment was ever started for this order' });
+    }
+    if (!hasValidCredentials()) {
+      return res.status(500).json({ success: false, message: 'Payment service not configured' });
+    }
+
+    const razorpay = getRazorpayClient();
+    let payments;
+    try {
+      payments = await razorpay.orders.fetchPayments(order.razorpayOrderId);
+    } catch (razorpayError) {
+      logger.error('Could not fetch payments from Razorpay', { error: razorpayError.message });
+      return res.status(502).json({ success: false, message: 'Razorpay could not be reached. Try again shortly.' });
+    }
+
+    const expectedPaise = Math.round(order.total * 100);
+    const match = (payments?.items || []).find(
+      (payment) => payment.status === 'captured' && payment.amount === expectedPaise
+    );
+
+    if (!match) {
+      return res.json({
+        success: true,
+        result: 'NOT_PAID',
+        message: 'Razorpay has no completed payment for this order',
+        data: order
+      });
+    }
+
+    const paidOrder = await markOrderPaid({ _id: order._id }, { paymentId: match.id });
+    logger.info('Order marked paid by reconcile', { orderNumber: order.orderNumber, paymentId: match.id });
+    res.json({ success: true, result: 'MARKED_PAID', message: 'Payment found. The order is now paid.', data: paidOrder });
+  } catch (error) {
+    logger.error('Error reconciling order', { error });
+    next(error);
   }
 };

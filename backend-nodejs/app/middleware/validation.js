@@ -6,7 +6,10 @@ export const productSchema = Joi.object({
   name: Joi.string().required().min(1).max(100),
   price: Joi.number().required().min(0).max(10000),
   category: Joi.string().trim().max(50).optional(),
-  stock: Joi.number().integer().min(0).optional()
+  stock: Joi.number().integer().min(0).optional(),
+  gstRate: Joi.number().valid(0, 5, 12, 18, 28).optional(),
+  trackStock: Joi.boolean().truthy('yes', 'y', '1').falsy('no', 'n', '0').optional(),
+  taxInclusive: Joi.boolean().truthy('yes', 'y', '1').falsy('no', 'n', '0').optional()
 });
 
 // Razorpay order validation schema: the client names a saved order, never an amount

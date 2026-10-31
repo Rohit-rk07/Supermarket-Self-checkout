@@ -2,6 +2,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { 
   demoLogin,
+  getAuthConfig,
   sendPhoneOTP,
   verifyPhoneOTP,
   completeRegistration,
@@ -50,6 +51,18 @@ const otpVerifyPhoneLimiter = rateLimit({
   }
 });
 
+// A public demo should not be a free session factory
+const demoLoginLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many demo sessions from this network. Please try again later.'
+  }
+});
+
 // Validation schemas
 const phoneOtpSchema = Joi.object({
   phoneNumber: Joi.string().pattern(/^\+?[1-9]\d{1,14}$/).required().messages({
@@ -75,7 +88,9 @@ const updateProfileSchema = Joi.object({
 // Phone-based authentication routes
 router.post('/phone/send-otp', validateRequest(phoneOtpSchema), otpIpLimiter, otpPhoneLimiter, sendPhoneOTP);
 router.post('/phone/verify-otp', validateRequest(verifyOtpSchema), otpVerifyPhoneLimiter, verifyPhoneOTP);
-router.post('/demo-login', demoLogin);
+// What this deployment offers (for example whether the demo is on)
+router.get('/config', getAuthConfig);
+router.post('/demo-login', demoLoginLimiter, demoLogin);
 router.post('/complete-registration', authenticateJWT, validateRequest(completeRegistrationSchema), completeRegistration);
 
 // User profile routes

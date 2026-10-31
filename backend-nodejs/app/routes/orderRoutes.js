@@ -10,6 +10,7 @@ import {
   verifyReceipt,
   confirmExit
 } from '../controllers/orderController.js';
+import { reconcileOrder } from '../controllers/paymentController.js';
 import { authenticateJWT, authorize } from '../middleware/auth.js';
 import { validateRequest } from '../middleware/validation.js';
 import Joi from 'joi';
@@ -28,7 +29,7 @@ const createOrderSchema = Joi.object({
 });
 
 const updateOrderStatusSchema = Joi.object({
-  status: Joi.string().valid('pending', 'processing', 'completed', 'cancelled', 'refunded').optional(),
+  status: Joi.string().valid('pending', 'processing', 'completed', 'cancelled', 'refunded', 'expired').optional(),
   paymentStatus: Joi.string().valid('pending', 'paid', 'failed', 'refunded').optional()
 });
 
@@ -43,5 +44,7 @@ router.get('/all', authenticateJWT, authorize('admin', 'staff'), getAllOrders);
 router.get('/:orderId', authenticateJWT, getOrderById);
 router.put('/:orderId/status', authenticateJWT, authorize('admin', 'staff'), validateRequest(updateOrderStatusSchema), updateOrderStatus);
 router.put('/:orderId/cancel', authenticateJWT, cancelOrder);
+// Staff: ask Razorpay whether an unpaid order was actually paid, and mark it paid if so
+router.post('/:orderId/reconcile', authenticateJWT, authorize('admin', 'staff'), reconcileOrder);
 
 export default router;

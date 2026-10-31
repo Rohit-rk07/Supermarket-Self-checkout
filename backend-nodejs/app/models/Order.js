@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { computeTotals } from '../utils/pricing.js';
+import { priceBasket } from '../utils/pricing.js';
 
 const orderItemSchema = new mongoose.Schema({
   productId: {
@@ -30,7 +30,10 @@ const orderItemSchema = new mongoose.Schema({
     type: Number,
     required: true,
     min: 0
-  }
+  },
+  // The tax this line was sold at, kept so a later rate change never rewrites an old receipt
+  gstRate: Number,
+  taxInclusive: Boolean
 });
 
 const orderSchema = new mongoose.Schema({
@@ -63,7 +66,7 @@ const orderSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'processing', 'completed', 'cancelled', 'refunded'],
+    enum: ['pending', 'processing', 'completed', 'cancelled', 'refunded', 'expired'],
     default: 'pending'
   },
   paymentStatus: {
@@ -83,6 +86,7 @@ const orderSchema = new mongoose.Schema({
   razorpayOrderId: String,
   razorpayPaymentId: String,
   razorpaySignature: String,
+  taxIncluded: { type: Number, min: 0 }, // GST already inside the shelf prices
   paidAt: Date,
   exitedAt: Date, // set when staff confirm the shopper may leave (receipt can only be used once)
   exitedBy: mongoose.Schema.Types.Mixed,
@@ -128,10 +132,11 @@ orderSchema.pre('save', function(next) {
 
 // Calculate total from items
 orderSchema.methods.calculateTotal = function() {
-  const itemsTotal = this.items.reduce((sum, item) => sum + item.subtotal, 0);
-  const totals = computeTotals(itemsTotal);
+  const totals = priceBasket(this.items);
+  // (totals come from priceBasket above)
   this.subtotal = totals.subtotal;
   this.tax = totals.tax;
+  this.taxIncluded = totals.taxIncluded;
   this.total = totals.total;
   return this.total;
 };
