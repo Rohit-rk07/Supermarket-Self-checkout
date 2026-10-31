@@ -184,7 +184,7 @@ export const getOrderById = async (req, res) => {
 export const updateOrderStatus = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { status, paymentStatus } = req.body;
+    const { status } = req.body;
 
     const order = await Order.findById(orderId);
     if (!order) {
@@ -194,8 +194,15 @@ export const updateOrderStatus = async (req, res) => {
       });
     }
 
-    if (status) order.status = status;
-    if (paymentStatus) order.paymentStatus = paymentStatus;
+    // A paid order is never edited by hand; refunds will have their own flow
+    if (order.paymentStatus === 'paid') {
+      return res.status(400).json({
+        success: false,
+        message: 'A paid order cannot be changed here'
+      });
+    }
+
+    order.status = status;
 
     await order.save();
 

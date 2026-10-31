@@ -1,5 +1,5 @@
-import { lazy, Suspense, useState, useCallback, useRef } from "react";
-import { Box, Typography, Button, TextField, ButtonBase } from "@mui/material";
+import { lazy, Suspense, useState, useCallback, useRef, useEffect } from "react";
+import { Box, Typography, Button, TextField, ButtonBase, Alert } from "@mui/material";
 import { QrCodeScanner as ScanIcon, ChevronRight } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -47,6 +47,7 @@ const Dashboard = () => {
   const [manual, setManual] = useState("");
   const [adding, setAdding] = useState(false);
   const [toast, setToast] = useState(null);
+  const [payments, setPayments] = useState(null); // webhook status, admins only
   const { cart, addToCart, totalItems } = useCart();
   const basketTotal = getBasketTotals(cart).total;
   const { user } = useAuth();
@@ -55,6 +56,17 @@ const Dashboard = () => {
   const isStaff = user?.role === "admin" || user?.role === "staff";
   const isAdmin = user?.role === "admin";
   const firstName = (user?.name || "").trim().split(" ")[0];
+
+  // Admins see whether the payment webhook is on and when it last called
+  useEffect(() => {
+    if (!isAdmin || !user?.token) return undefined;
+    let cancelled = false;
+    fetch(`${import.meta.env.VITE_SERVER_URL}/api/v1/orders/stats`, { headers: { Authorization: `Bearer ${user.token}` } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body) => { if (!cancelled && body?.data?.payments) setPayments(body.data.payments); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isAdmin, user?.token]);
 
   // Look a barcode up on the server and put the product in the basket
   const addByBarcode = async (raw) => {
@@ -173,6 +185,15 @@ const Dashboard = () => {
               </>
             )}
             <Box sx={{ borderTop: 1, borderColor: "divider" }} />
+            {isAdmin && payments && (
+              <Alert severity={payments.webhookConfigured ? "success" : "warning"} sx={{ mt: 2 }}>
+                {!payments.webhookConfigured
+                  ? "Payment webhook is off. A shopper who closes the browser right after paying stays Unpaid until staff use Check payment."
+                  : payments.lastWebhookAt
+                    ? `Payment webhook is on. Last call received ${new Date(payments.lastWebhookAt).toLocaleString()}.`
+                    : "Payment webhook is on, but no call has arrived yet."}
+              </Alert>
+            )}
           </Box>
         )}
       </Box>
@@ -186,7 +207,7 @@ const Dashboard = () => {
             right: 0,
             bottom: 0,
             backgroundColor: tokens.forest,
-            color: "#FFFFFF",
+            color: tokens.surface,
             zIndex: 20,
           }}
         >
@@ -202,7 +223,7 @@ const Dashboard = () => {
             </Box>
             <Button
               onClick={() => navigate("/cart")}
-              sx={{ backgroundColor: "#F2F4EF", color: tokens.ink, "&:hover": { backgroundColor: "#FFFFFF" }, px: 3 }}
+              sx={{ backgroundColor: tokens.paper, color: tokens.ink, "&:hover": { backgroundColor: tokens.surface }, px: 3 }}
             >
               Review and pay
             </Button>

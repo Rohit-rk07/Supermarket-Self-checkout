@@ -28,9 +28,10 @@ const createOrderSchema = Joi.object({
   notes: Joi.string().max(500).optional()
 });
 
+// Admins can only move an unpaid order between these states. Payment status is never set by hand:
+// it changes only through Razorpay (verify, webhook, Check payment) so stock and money stay in step.
 const updateOrderStatusSchema = Joi.object({
-  status: Joi.string().valid('pending', 'processing', 'completed', 'cancelled', 'refunded', 'expired').optional(),
-  paymentStatus: Joi.string().valid('pending', 'paid', 'failed', 'refunded').optional()
+  status: Joi.string().valid('pending', 'processing', 'cancelled', 'expired').required()
 });
 
 // Routes
@@ -42,7 +43,7 @@ router.post('/verify/:orderNumber/exit', authenticateJWT, authorize('admin', 'st
 router.get('/stats', authenticateJWT, authorize('admin', 'staff'), getOrderStats);
 router.get('/all', authenticateJWT, authorize('admin', 'staff'), getAllOrders);
 router.get('/:orderId', authenticateJWT, getOrderById);
-router.put('/:orderId/status', authenticateJWT, authorize('admin', 'staff'), validateRequest(updateOrderStatusSchema), updateOrderStatus);
+router.put('/:orderId/status', authenticateJWT, authorize('admin'), validateRequest(updateOrderStatusSchema), updateOrderStatus);
 router.put('/:orderId/cancel', authenticateJWT, cancelOrder);
 // Staff: ask Razorpay whether an unpaid order was actually paid, and mark it paid if so
 router.post('/:orderId/reconcile', authenticateJWT, authorize('admin', 'staff'), reconcileOrder);

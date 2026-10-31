@@ -25,7 +25,7 @@ import Sheet from "../components/ui/Sheet";
 import ResponsiveRows from "../components/ui/ResponsiveRows";
 
 const API_URL = `${import.meta.env.VITE_SERVER_URL}/api/v1/products`;
-const EMPTY_FORM = { barcode: "", name: "", price: "", category: "General", stock: "0", trackStock: false, gstRate: "5", taxInclusive: true };
+const EMPTY_FORM = { barcode: "", name: "", price: "", category: "General", stock: "", trackStock: true, gstRate: "5", taxInclusive: true };
 const GST_RATES = [0, 5, 12, 18, 28];
 const LOW_STOCK_LEVEL = 5; // same level the server uses for the low-stock list
 

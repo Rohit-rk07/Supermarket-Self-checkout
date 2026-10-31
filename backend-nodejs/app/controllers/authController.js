@@ -27,14 +27,10 @@ export const getAuthConfig = (req, res) => {
 // Send OTP to phone number
 export const sendPhoneOTP = async (req, res) => {
   try {
-    console.log('🚀 Send OTP request started');
-    console.log('📱 Request body:', req.body);
     
     const { phoneNumber } = req.body;
-    console.log('📱 Phone number received:', phoneNumber);
     
     if (!phoneNumber) {
-      console.log('❌ Phone number missing');
       return res.status(400).json({
         success: false,
         message: 'Phone number is required'
@@ -63,23 +59,18 @@ export const sendPhoneOTP = async (req, res) => {
     }
 
     if (!isValidPhone) {
-      console.log('❌ Invalid phone format:', phoneNumber);
       return res.status(400).json({
         success: false,
         message: 'Invalid phone number format. Supported countries: US/Canada (+1), India (+91), China (+86), UK (+44), Japan (+81), Germany (+49)'
       });
     }
 
-    console.log('✅ Valid phone number for:', countryName);
     
-    console.log('🔍 Looking for existing user with phone:', phoneNumber);
     // Check if user exists
     let user = await User.findOne({ phoneNumber });
     const isNewUser = !user;
-    console.log('👤 User found:', !!user, 'isNewUser:', isNewUser);
     
     if (!user) {
-      console.log('🆕 Creating new user...');
       // Create temporary user entry for OTP verification
       user = new User({
         phoneNumber,
@@ -87,21 +78,14 @@ export const sendPhoneOTP = async (req, res) => {
         isPhoneVerified: false
       });
       logger.authLog('NEW_USER_CREATED', null, { phoneNumber });
-      console.log('✅ New user object created');
     }
     
     // Generate OTP
-    console.log('🔢 Generating OTP...');
     const otp = user.generateOTP();
-    console.log('✅ OTP generated:', otp);
     
-    console.log('💾 Saving user to database...');
     try {
       await user.save();
-      console.log('✅ User saved successfully');
     } catch (saveError) {
-      console.log('❌ User save failed:', saveError.message);
-      console.log('📋 Save error details:', saveError);
       logger.error('User save error during OTP generation', { 
         phoneNumber, 
         error: saveError.message,
@@ -168,18 +152,14 @@ const sendSMS = async (phoneNumber, message) => {
         to: phoneNumber
       });
       
-      console.log(`✅ SMS sent successfully to ${phoneNumber}`);
       return;
     } catch (error) {
-      console.error('Twilio SMS error:', error);
+      logger.error('Twilio SMS error', { error: error.message });
       throw error;
     }
   }
   
   // Fallback for development/testing - this will always trigger with placeholder values
-  console.log(`📱 Development Mode - SMS to ${phoneNumber}:`);
-  console.log(`📄 Message: ${message}`);
-  console.log('💡 To enable real SMS, configure valid Twilio credentials in .env');
   
   // Don't throw error in development mode
   if (process.env.NODE_ENV === 'development') {
@@ -271,15 +251,11 @@ export const verifyPhoneOTP = async (req, res) => {
 // Complete user registration after OTP verification
 export const completeRegistration = async (req, res) => {
   try {
-    console.log('🔍 Complete registration started');
-    console.log('📝 Request body:', req.body);
-    console.log('👤 User from JWT:', req.user ? { id: req.user._id, phone: req.user.phoneNumber } : 'No user');
     
     const { name, email } = req.body;
     const user = req.user; // From JWT middleware
     
     if (!user) {
-      console.log('❌ No user found in request');
       return res.status(401).json({
         success: false,
         message: 'User not authenticated'
@@ -287,14 +263,12 @@ export const completeRegistration = async (req, res) => {
     }
     
     if (!name) {
-      console.log('❌ Name is missing');
       return res.status(400).json({
         success: false,
         message: 'Name is required'
       });
     }
     
-    console.log('🔄 Updating user details...');
     // Update user details
     user.name = name;
     if (email && email.trim() !== '') {
@@ -302,13 +276,9 @@ export const completeRegistration = async (req, res) => {
     }
     user.isNewUser = false; // Mark registration as completed
     
-    console.log('💾 Saving user to database...');
     try {
       await user.save();
-      console.log('✅ User saved successfully');
     } catch (saveError) {
-      console.log('❌ Database save error:', saveError.message);
-      console.log('📋 Error details:', saveError);
       throw saveError;
     }
     
@@ -327,9 +297,7 @@ export const completeRegistration = async (req, res) => {
   } catch (error) {
     logger.error('Complete registration error', { 
       userId: req.user?._id, 
-      error: error.message, 
-      stack: error.stack,
-      body: req.body 
+      error: error.message,
     });
     res.status(500).json({
       success: false,

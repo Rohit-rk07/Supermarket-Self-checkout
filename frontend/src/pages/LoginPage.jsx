@@ -131,7 +131,7 @@ const LoginPage = () => {
       <Box
         sx={{
           backgroundColor: tokens.forest,
-          color: '#F2F4EF',
+          color: tokens.paper,
           px: { xs: 3, md: 8 },
           py: { xs: 3, md: 7 },
           display: 'flex',

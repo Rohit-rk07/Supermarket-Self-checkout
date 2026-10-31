@@ -133,7 +133,7 @@ A barcode only identifies a product. The name and price come from your database,
 
 - **Sample data:** `npm run seed` in `backend-nodejs/` (this **clears** the products collection first).
 - **Admin page:** *Manage products* lets you add, edit and delete one at a time. In the Add form, **Look up** asks Open Food Facts for a name and category. It never fills the price, and it works best for packaged food.
-- **CSV import:** *Import CSV* accepts up to 500 rows with the columns `barcode,name,price` and optionally `category,stock`. Bad rows are skipped and reported by row number; existing barcodes are updated.
+- **CSV import:** *Import CSV* accepts up to 500 rows with the columns `barcode,name,price` and optionally `category,stock,trackStock,gstRate,taxInclusive` (`trackStock` and `taxInclusive` accept yes or no). Bad rows are skipped and reported by row number; existing barcodes are updated.
 - **Trying the scanner:** make barcode images for the seeded products with any online generator (see `app/utils/seedDatabase.js` for the numbers), or just type a number.
 
   Example barcode for Apple:
@@ -220,5 +220,6 @@ The Express app is exported for serverless use. Set the same settings as above i
 - Nothing checks that the bag matches what was scanned. The exit QR proves payment only, so a staff spot-check is part of the process.
 - Items sold by weight, discounts and returns are not supported.
 - Refunds are not built; paid orders cannot be cancelled.
-- Stock is stored but not reduced when an order is paid.
-- Abandoned checkouts leave pending orders behind.
+- Stock tracking is per product. New products from the Add form track stock by default; products created before tracking existed are not tracked until an admin ticks *Track stock*. Tracked stock falls once, when an order first becomes paid. Two shoppers paying for the last unit at the same moment can both succeed; stock is then held at zero rather than going negative.
+- Payment status is never edited by hand. It changes only through Razorpay (verify, webhook, or staff *Check payment*).
+- Unpaid orders are marked Expired after 30 minutes. This runs whenever orders are listed, so an order can show as Unpaid for a short while after its time is up.
