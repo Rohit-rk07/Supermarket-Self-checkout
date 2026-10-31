@@ -1,29 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
-import {
-    Box,
-    Container,
-    Typography,
-    Paper,
-    Grid,
-    Table,
-    TableHead,
-    TableRow,
-    TableCell,
-    TableBody,
-    TableContainer,
-    TablePagination,
-    TextField,
-    MenuItem,
-    Chip,
-    Button,
-    IconButton,
-    Tooltip,
-    CircularProgress,
-    Alert
-} from "@mui/material";
-import { ArrowBack, Refresh } from "@mui/icons-material";
+import { Box, Typography, Button, TablePagination, TextField, MenuItem, IconButton, Tooltip, Alert } from "@mui/material";
+import { Refresh } from "@mui/icons-material";
 import { useAuth } from "../context/AuthContext";
+import TopBar from "../components/ui/TopBar";
+import Money from "../components/ui/Money";
+import StatusChip from "../components/ui/StatusChip";
+import Toast from "../components/ui/Toast";
+import ResponsiveRows from "../components/ui/ResponsiveRows";
+import { fonts } from "../theme/theme";
 
 const API_URL = `${import.meta.env.VITE_SERVER_URL}/api/v1/orders`;
 
@@ -35,40 +19,33 @@ const PAYMENT_FILTERS = [
     { value: "expired", label: "Expired" }
 ];
 
-const PAYMENT_CHIP = {
-    paid: { label: "Paid", color: "#166534", background: "#dcfce7" },
-    pending: { label: "Unpaid", color: "#92400e", background: "#fef3c7" },
-    failed: { label: "Failed", color: "#991b1b", background: "#fee2e2" },
-    refunded: { label: "Refunded", color: "#1e40af", background: "#dbeafe" },
-    expired: { label: "Expired", color: "#475569", background: "#e2e8f0" }
-};
-
 // Staff see a name and the last 4 digits only
 const maskPhone = (phone) => (phone ? `•••• ${String(phone).slice(-4)}` : "");
 
 const StatCard = ({ label, value }) => (
-    <Paper elevation={0} sx={{ p: 2.5, border: "1px solid #f1f5f9", borderRadius: 2 }}>
-        <Typography variant="body2" sx={{ color: "#64748b" }}>{label}</Typography>
-        <Typography variant="h5" fontWeight="700" sx={{ color: "#1e293b" }}>{value}</Typography>
-    </Paper>
+    <Box sx={{ p: 2, border: 1, borderColor: "divider", borderRadius: "10px", backgroundColor: "background.paper" }}>
+        <Typography variant="body2" color="text.secondary">{label}</Typography>
+        <Typography sx={{ fontFamily: fonts.serif, fontWeight: 700, fontSize: "1.6rem", fontVariantNumeric: "tabular-nums" }}>
+            {value}
+        </Typography>
+    </Box>
 );
 
 const StaffOrdersPage = () => {
     const { user } = useAuth();
-    const navigate = useNavigate();
     const canView = user?.role === "admin" || user?.role === "staff";
     const token = user?.token;
 
     const [orders, setOrders] = useState([]);
     const [stats, setStats] = useState(null);
+    const [payments, setPayments] = useState(null);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(10);
     const [paymentFilter, setPaymentFilter] = useState("");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [notice, setNotice] = useState(null);
-    const [payments, setPayments] = useState(null);
+    const [toast, setToast] = useState(null);
     const [checkingId, setCheckingId] = useState(null);
 
     const load = useCallback(async () => {
@@ -116,7 +93,6 @@ const StaffOrdersPage = () => {
     // Ask Razorpay whether this order was really paid (the server only accepts a captured payment of the exact amount)
     const checkPayment = async (order) => {
         setCheckingId(order._id);
-        setNotice(null);
         try {
             const response = await fetch(`${API_URL}/${order._id}/reconcile`, {
                 method: "POST",
@@ -124,10 +100,10 @@ const StaffOrdersPage = () => {
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.message || "Could not check the payment");
-            setNotice({ severity: data.result === "NOT_PAID" ? "info" : "success", message: `${order.orderNumber}: ${data.message}` });
+            setToast({ severity: data.result === "NOT_PAID" ? "info" : "success", message: `${order.orderNumber}: ${data.message}` });
             await load();
         } catch (err) {
-            setNotice({ severity: "error", message: err.message });
+            setToast({ severity: "error", message: err.message });
         } finally {
             setCheckingId(null);
         }
@@ -135,55 +111,75 @@ const StaffOrdersPage = () => {
 
     if (!canView) {
         return (
-            <Container maxWidth="sm" sx={{ py: 8, textAlign: "center" }}>
-                <Typography variant="h5" fontWeight="600" gutterBottom>Staff only</Typography>
-                <Typography variant="body1" sx={{ color: "#64748b" }}>
-                    Your account does not have permission to view all orders.
-                </Typography>
-            </Container>
+            <Box sx={{ minHeight: "100vh" }}>
+                <TopBar title="All orders" backTo="/dashboard" />
+                <Box sx={{ maxWidth: 480, mx: "auto", px: 3, py: 8, textAlign: "center" }}>
+                    <Typography component="h2" variant="h5" gutterBottom>Staff only</Typography>
+                    <Typography color="text.secondary">
+                        Your account does not have permission to view all orders.
+                    </Typography>
+                </Box>
+            </Box>
         );
     }
 
-    const exitChip = (order) => {
-        if (order.paymentStatus !== "paid") return null;
-        return order.exitedAt
-            ? <Chip size="small" label="Exited" sx={{ backgroundColor: "#dcfce7", color: "#166534" }} />
-            : <Chip size="small" label="Awaiting exit" sx={{ backgroundColor: "#fef3c7", color: "#92400e" }} />;
-    };
+    const columns = [
+        {
+            label: "Order",
+            primary: true,
+            render: (order) => <span style={{ fontFamily: "monospace" }}>{order.orderNumber}</span>
+        },
+        {
+            label: "Customer",
+            render: (order) => (
+                <>
+                    {order.userName || "Customer"}
+                    <Typography component="span" variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                        {maskPhone(order.userPhone)}
+                    </Typography>
+                </>
+            )
+        },
+        { label: "Items", align: "right", render: (order) => order.items?.length ?? 0 },
+        { label: "Total", align: "right", render: (order) => <Money value={order.total} /> },
+        { label: "Payment", render: (order) => <StatusChip order={order} /> },
+        {
+            label: "Exit",
+            render: (order) => (order.paymentStatus === "paid"
+                ? <StatusChip status={order.exitedAt ? "exited" : "awaitingExit"} />
+                : null)
+        },
+        { label: "Placed", render: (order) => (order.createdAt ? new Date(order.createdAt).toLocaleString() : "") },
+        {
+            label: "Action",
+            actions: true,
+            render: (order) => {
+                const canCheck = order.paymentStatus !== "paid" && order.status !== "cancelled" && Boolean(order.razorpayOrderId);
+                return canCheck ? (
+                    <Button size="small" variant="outlined" disabled={checkingId === order._id} onClick={() => checkPayment(order)}>
+                        {checkingId === order._id ? "Checking..." : "Check payment"}
+                    </Button>
+                ) : null;
+            }
+        }
+    ];
 
     return (
-        <Box sx={{ minHeight: "100vh", backgroundColor: "#f8fafc", py: 4 }}>
-            <Container maxWidth="lg">
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 3, flexWrap: "wrap", gap: 2 }}>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                        <Tooltip title="Back to dashboard">
-                            <IconButton onClick={() => navigate("/dashboard")}><ArrowBack /></IconButton>
-                        </Tooltip>
-                        <Typography variant="h4" fontWeight="700" sx={{ color: "#1e293b" }}>All Orders</Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                        <TextField
-                            select
-                            size="small"
-                            label="Payment"
-                            value={paymentFilter}
-                            onChange={(event) => { setPaymentFilter(event.target.value); setPage(0); }}
-                            sx={{ minWidth: 150 }}
-                        >
-                            {PAYMENT_FILTERS.map((option) => (
-                                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-                            ))}
-                        </TextField>
-                        <Tooltip title="Refresh">
-                            <IconButton onClick={load}><Refresh /></IconButton>
-                        </Tooltip>
-                    </Box>
-                </Box>
+        <Box sx={{ minHeight: "100vh" }}>
+            <TopBar
+                title="All orders"
+                backTo="/dashboard"
+                right={
+                    <Tooltip title="Refresh">
+                        <IconButton aria-label="Refresh" onClick={load}><Refresh /></IconButton>
+                    </Tooltip>
+                }
+            />
 
-                {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
-                {notice && <Alert severity={notice.severity} onClose={() => setNotice(null)} sx={{ mb: 3 }}>{notice.message}</Alert>}
+            <Box sx={{ maxWidth: 1040, mx: "auto", px: { xs: 2, sm: 3 }, pt: 3, pb: 8 }}>
+                {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
                 {payments && (
-                    <Alert severity={payments.webhookConfigured ? "success" : "warning"} sx={{ mb: 3 }}>
+                    <Alert severity={payments.webhookConfigured ? "success" : "warning"} sx={{ mb: 2 }}>
                         {!payments.webhookConfigured
                             ? "Payment webhook is off. A shopper who closes the browser right after paying stays Unpaid until you use Check payment."
                             : payments.lastWebhookAt
@@ -193,97 +189,53 @@ const StaffOrdersPage = () => {
                 )}
 
                 {stats && (
-                    <Grid container spacing={2} sx={{ mb: 3 }}>
-                        <Grid item xs={6} md={3}><StatCard label="Total orders" value={stats.totalOrders} /></Grid>
-                        <Grid item xs={6} md={3}><StatCard label="Revenue (paid, incl. GST)" value={`₹${Number(stats.totalRevenue).toFixed(2)}`} /></Grid>
-                        <Grid item xs={6} md={3}><StatCard label="Unpaid" value={stats.pendingOrders} /></Grid>
-                        <Grid item xs={6} md={3}><StatCard label="Expired / cancelled" value={`${stats.expiredOrders ?? 0} / ${stats.cancelledOrders}`} /></Grid>
-                    </Grid>
+                    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, 1fr)" }, gap: 1.5, mb: 3 }}>
+                        <StatCard label="Total orders" value={stats.totalOrders} />
+                        <StatCard label="Revenue (paid, incl. GST)" value={<Money value={stats.totalRevenue} />} />
+                        <StatCard label="Unpaid" value={stats.pendingOrders} />
+                        <StatCard label="Expired / cancelled" value={`${stats.expiredOrders ?? 0} / ${stats.cancelledOrders}`} />
+                    </Box>
                 )}
 
-                <Paper elevation={0} sx={{ border: "1px solid #f1f5f9", borderRadius: 2 }}>
-                    <TableContainer>
-                        <Table>
-                            <TableHead>
-                                <TableRow>
-                                    <TableCell><strong>Order</strong></TableCell>
-                                    <TableCell><strong>Customer</strong></TableCell>
-                                    <TableCell align="right"><strong>Items</strong></TableCell>
-                                    <TableCell align="right"><strong>Total (₹)</strong></TableCell>
-                                    <TableCell><strong>Payment</strong></TableCell>
-                                    <TableCell><strong>Exit</strong></TableCell>
-                                    <TableCell><strong>Placed</strong></TableCell>
-                                    <TableCell><strong>Action</strong></TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {loading ? (
-                                    <TableRow>
-                                        <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
-                                            <CircularProgress size={32} sx={{ color: "#10b981" }} />
-                                        </TableCell>
-                                    </TableRow>
-                                ) : orders.length === 0 ? (
-                                    <TableRow>
-                                        <TableCell colSpan={7} align="center" sx={{ py: 6, color: "#64748b" }}>
-                                            No orders match this filter.
-                                        </TableCell>
-                                    </TableRow>
-                                ) : (
-                                    orders.map((order) => {
-                                        const chip = order.status === "expired" && order.paymentStatus !== "paid"
-                                            ? PAYMENT_CHIP.expired
-                                            : (PAYMENT_CHIP[order.paymentStatus] || PAYMENT_CHIP.pending);
-                                        const canCheck = order.paymentStatus !== "paid" && order.status !== "cancelled" && Boolean(order.razorpayOrderId);
-                                        return (
-                                            <TableRow key={order._id} hover>
-                                                <TableCell sx={{ fontFamily: "monospace" }}>
-                                                    {order.orderNumber}
-                                                    {order.status === "cancelled" && (
-                                                        <Chip size="small" label="Cancelled" sx={{ ml: 1 }} />
-                                                    )}
-                                                </TableCell>
-                                                <TableCell>
-                                                    {order.userName || "Customer"}
-                                                    <Typography variant="caption" display="block" sx={{ color: "#64748b" }}>
-                                                        {maskPhone(order.userPhone)}
-                                                    </Typography>
-                                                </TableCell>
-                                                <TableCell align="right">{order.items?.length ?? 0}</TableCell>
-                                                <TableCell align="right">{Number(order.total).toFixed(2)}</TableCell>
-                                                <TableCell>
-                                                    <Chip size="small" label={chip.label} sx={{ backgroundColor: chip.background, color: chip.color }} />
-                                                </TableCell>
-                                                <TableCell>{exitChip(order)}</TableCell>
-                                                <TableCell>{order.createdAt ? new Date(order.createdAt).toLocaleString() : ""}</TableCell>
-                                                <TableCell>
-                                                    {canCheck && (
-                                                        <Button size="small" variant="outlined" disabled={checkingId === order._id} onClick={() => checkPayment(order)}>
-                                                            {checkingId === order._id ? "Checking..." : "Check payment"}
-                                                        </Button>
-                                                    )}
-                                                </TableCell>
-                                            </TableRow>
-                                        );
-                                    })
-                                )}
-                            </TableBody>
-                        </Table>
-                    </TableContainer>
-                    <TablePagination
-                        component="div"
-                        count={total}
-                        page={page}
-                        onPageChange={(event, newPage) => setPage(newPage)}
-                        rowsPerPage={rowsPerPage}
-                        onRowsPerPageChange={(event) => {
-                            setRowsPerPage(parseInt(event.target.value, 10));
-                            setPage(0);
-                        }}
-                        rowsPerPageOptions={[10, 25, 50]}
-                    />
-                </Paper>
-            </Container>
+                <Box sx={{ mb: 2 }}>
+                    <TextField
+                        select
+                        size="small"
+                        label="Show"
+                        value={paymentFilter}
+                        onChange={(event) => { setPaymentFilter(event.target.value); setPage(0); }}
+                        sx={{ minWidth: 160 }}
+                    >
+                        {PAYMENT_FILTERS.map((option) => (
+                            <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                        ))}
+                    </TextField>
+                </Box>
+
+                <ResponsiveRows
+                    columns={columns}
+                    rows={orders}
+                    rowKey={(order) => order._id}
+                    loading={loading}
+                    emptyText="No orders match this filter."
+                    footer={
+                        <TablePagination
+                            component="div"
+                            count={total}
+                            page={page}
+                            onPageChange={(event, newPage) => setPage(newPage)}
+                            rowsPerPage={rowsPerPage}
+                            onRowsPerPageChange={(event) => {
+                                setRowsPerPage(parseInt(event.target.value, 10));
+                                setPage(0);
+                            }}
+                            rowsPerPageOptions={[10, 25, 50]}
+                        />
+                    }
+                />
+            </Box>
+
+            <Toast toast={toast} onClose={() => setToast(null)} />
         </Box>
     );
 };

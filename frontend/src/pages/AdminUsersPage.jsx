@@ -2,32 +2,23 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
     Box,
-    Container,
     Typography,
     Button,
-    Paper,
-    Table,
-    TableHead,
-    TableRow,
-    TableCell,
-    TableBody,
-    TableContainer,
     TablePagination,
     TextField,
     MenuItem,
     Chip,
-    IconButton,
     Tooltip,
-    Dialog,
     DialogTitle,
     DialogContent,
-    DialogActions,
-    Snackbar,
-    Alert,
-    CircularProgress
+    DialogActions
 } from "@mui/material";
-import { ArrowBack, Search } from "@mui/icons-material";
+import { Search } from "@mui/icons-material";
 import { useAuth } from "../context/AuthContext";
+import TopBar from "../components/ui/TopBar";
+import Toast from "../components/ui/Toast";
+import Sheet from "../components/ui/Sheet";
+import ResponsiveRows from "../components/ui/ResponsiveRows";
 
 const API_URL = `${import.meta.env.VITE_SERVER_URL}/api/v1/users`;
 
@@ -58,9 +49,9 @@ const AdminUsersPage = () => {
     const [loading, setLoading] = useState(true);
     const [pendingChange, setPendingChange] = useState(null); // { target, role }
     const [saving, setSaving] = useState(false);
-    const [snackbar, setSnackbar] = useState(null);
+    const [toast, setToast] = useState(null);
 
-    const notify = (message, severity = "success") => setSnackbar({ message, severity });
+    const notify = (message, severity = "success") => setToast({ message, severity });
 
     const authHeaders = useCallback(() => ({
         "Content-Type": "application/json",
@@ -81,7 +72,7 @@ const AdminUsersPage = () => {
             setUsers(data.data.users);
             setTotal(data.data.pagination.total);
         } catch (error) {
-            notify(error.message, "error");
+            setToast({ message: error.message, severity: "error" });
         } finally {
             setLoading(false);
         }
@@ -119,26 +110,75 @@ const AdminUsersPage = () => {
 
     if (!isAdmin) {
         return (
-            <Container maxWidth="sm" sx={{ py: 8, textAlign: "center" }}>
-                <Typography variant="h5" fontWeight="600" gutterBottom>Admins only</Typography>
-                <Typography variant="body1" sx={{ color: "#64748b", mb: 3 }}>
-                    Your account does not have permission to manage staff.
-                </Typography>
-                <Button variant="outlined" onClick={() => navigate("/dashboard")}>Back to dashboard</Button>
-            </Container>
+            <Box sx={{ minHeight: "100vh" }}>
+                <TopBar title="Manage staff" backTo="/dashboard" />
+                <Box sx={{ maxWidth: 480, mx: "auto", px: 3, py: 8, textAlign: "center" }}>
+                    <Typography component="h2" variant="h5" gutterBottom>Admins only</Typography>
+                    <Typography color="text.secondary" sx={{ mb: 3 }}>
+                        Your account does not have permission to manage staff.
+                    </Typography>
+                    <Button variant="outlined" onClick={() => navigate("/dashboard")}>Back to dashboard</Button>
+                </Box>
+            </Box>
         );
     }
 
-    return (
-        <Box sx={{ minHeight: "100vh", backgroundColor: "#f8fafc", py: 4 }}>
-            <Container maxWidth="lg">
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-                    <Tooltip title="Back to dashboard">
-                        <IconButton onClick={() => navigate("/dashboard")}><ArrowBack /></IconButton>
+    const columns = [
+        {
+            label: "Name",
+            primary: true,
+            render: (person) => (
+                <>
+                    {person.name || "Unnamed"}
+                    {String(person._id) === myId && <Chip size="small" label="You" sx={{ ml: 1 }} />}
+                </>
+            )
+        },
+        {
+            label: "Phone",
+            render: (person) => <span style={{ fontFamily: "monospace" }}>{person.phoneNumber}</span>
+        },
+        {
+            label: "Role",
+            render: (person) => {
+                const isMe = String(person._id) === myId;
+                return (
+                    <Tooltip title={isMe ? "You cannot change your own role" : ""}>
+                        <span>
+                            <TextField
+                                select
+                                size="small"
+                                value={person.role}
+                                disabled={isMe}
+                                inputProps={{ "aria-label": `Role for ${person.name || person.phoneNumber}` }}
+                                onChange={(event) => {
+                                    if (event.target.value !== person.role) {
+                                        setPendingChange({ target: person, role: event.target.value });
+                                    }
+                                }}
+                                sx={{ minWidth: 130 }}
+                            >
+                                {ROLE_OPTIONS.map((option) => (
+                                    <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                                ))}
+                            </TextField>
+                        </span>
                     </Tooltip>
-                    <Typography variant="h4" fontWeight="700" sx={{ color: "#1e293b" }}>Manage Staff</Typography>
-                </Box>
-                <Typography variant="body2" sx={{ color: "#64748b", mb: 3, ml: 6 }}>
+                );
+            }
+        },
+        {
+            label: "Last login",
+            render: (person) => (person.lastLogin ? new Date(person.lastLogin).toLocaleString() : "")
+        }
+    ];
+
+    return (
+        <Box sx={{ minHeight: "100vh" }}>
+            <TopBar title="Manage staff" backTo="/dashboard" />
+
+            <Box sx={{ maxWidth: 1040, mx: "auto", px: { xs: 2, sm: 3 }, pt: 3, pb: 8 }}>
+                <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 640 }}>
                     New staff sign in with their own phone number first. Then find them here and give them the Staff role. Changes apply the next time they open the app.
                 </Typography>
 
@@ -149,7 +189,7 @@ const AdminUsersPage = () => {
                         value={searchInput}
                         onChange={(event) => setSearchInput(event.target.value)}
                         onKeyDown={(event) => { if (event.key === "Enter") runSearch(); }}
-                        sx={{ minWidth: 240 }}
+                        sx={{ minWidth: { xs: "100%", sm: 240 } }}
                     />
                     <Button variant="outlined" startIcon={<Search />} onClick={runSearch}>Search</Button>
                     <TextField
@@ -167,123 +207,49 @@ const AdminUsersPage = () => {
                     </TextField>
                 </Box>
 
-                <Paper elevation={0} sx={{ border: "1px solid #f1f5f9", borderRadius: 2 }}>
-                    <TableContainer>
-                        <Table>
-                            <TableHead>
-                                <TableRow>
-                                    <TableCell><strong>Name</strong></TableCell>
-                                    <TableCell><strong>Phone</strong></TableCell>
-                                    <TableCell><strong>Role</strong></TableCell>
-                                    <TableCell><strong>Last login</strong></TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {loading ? (
-                                    <TableRow>
-                                        <TableCell colSpan={4} align="center" sx={{ py: 6 }}>
-                                            <CircularProgress size={32} sx={{ color: "#10b981" }} />
-                                        </TableCell>
-                                    </TableRow>
-                                ) : users.length === 0 ? (
-                                    <TableRow>
-                                        <TableCell colSpan={4} align="center" sx={{ py: 6, color: "#64748b" }}>
-                                            No users match your search.
-                                        </TableCell>
-                                    </TableRow>
-                                ) : (
-                                    users.map((person) => {
-                                        const isMe = String(person._id) === myId;
-                                        return (
-                                            <TableRow key={person._id} hover>
-                                                <TableCell>
-                                                    {person.name || "Unnamed"}
-                                                    {isMe && <Chip size="small" label="You" sx={{ ml: 1 }} />}
-                                                </TableCell>
-                                                <TableCell sx={{ fontFamily: "monospace" }}>{person.phoneNumber}</TableCell>
-                                                <TableCell>
-                                                    <Tooltip title={isMe ? "You cannot change your own role" : ""}>
-                                                        <span>
-                                                            <TextField
-                                                                select
-                                                                size="small"
-                                                                value={person.role}
-                                                                disabled={isMe}
-                                                                onChange={(event) => {
-                                                                    if (event.target.value !== person.role) {
-                                                                        setPendingChange({ target: person, role: event.target.value });
-                                                                    }
-                                                                }}
-                                                                sx={{ minWidth: 130 }}
-                                                            >
-                                                                {ROLE_OPTIONS.map((option) => (
-                                                                    <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-                                                                ))}
-                                                            </TextField>
-                                                        </span>
-                                                    </Tooltip>
-                                                </TableCell>
-                                                <TableCell>
-                                                    {person.lastLogin ? new Date(person.lastLogin).toLocaleString() : ""}
-                                                </TableCell>
-                                            </TableRow>
-                                        );
-                                    })
-                                )}
-                            </TableBody>
-                        </Table>
-                    </TableContainer>
-                    <TablePagination
-                        component="div"
-                        count={total}
-                        page={page}
-                        onPageChange={(event, newPage) => setPage(newPage)}
-                        rowsPerPage={rowsPerPage}
-                        onRowsPerPageChange={(event) => {
-                            setRowsPerPage(parseInt(event.target.value, 10));
-                            setPage(0);
-                        }}
-                        rowsPerPageOptions={[10, 25, 50]}
-                    />
-                </Paper>
-            </Container>
+                <ResponsiveRows
+                    columns={columns}
+                    rows={users}
+                    rowKey={(person) => person._id}
+                    loading={loading}
+                    emptyText="No users match your search."
+                    footer={
+                        <TablePagination
+                            component="div"
+                            count={total}
+                            page={page}
+                            onPageChange={(event, newPage) => setPage(newPage)}
+                            rowsPerPage={rowsPerPage}
+                            onRowsPerPageChange={(event) => {
+                                setRowsPerPage(parseInt(event.target.value, 10));
+                                setPage(0);
+                            }}
+                            rowsPerPageOptions={[10, 25, 50]}
+                        />
+                    }
+                />
+            </Box>
 
             {/* Confirm a role change */}
-            <Dialog open={!!pendingChange} onClose={() => !saving && setPendingChange(null)} fullWidth maxWidth="xs">
+            <Sheet open={!!pendingChange} onClose={() => !saving && setPendingChange(null)} maxWidth="xs">
                 <DialogTitle>Change role?</DialogTitle>
                 <DialogContent>
                     <Typography gutterBottom>
-                        {pendingChange?.target.name || pendingChange?.target.phoneNumber}: {roleLabel(pendingChange?.target.role)} → <strong>{roleLabel(pendingChange?.role)}</strong>
+                        {pendingChange?.target.name || pendingChange?.target.phoneNumber}: {roleLabel(pendingChange?.target.role)} {"→"} <strong>{roleLabel(pendingChange?.role)}</strong>
                     </Typography>
-                    <Typography variant="body2" sx={{ color: "#64748b" }}>
+                    <Typography variant="body2" color="text.secondary">
                         {ROLE_OPTIONS.find((option) => option.value === pendingChange?.role)?.hint}
                     </Typography>
                 </DialogContent>
                 <DialogActions sx={{ px: 3, pb: 2 }}>
                     <Button onClick={() => setPendingChange(null)} disabled={saving}>Cancel</Button>
-                    <Button
-                        variant="contained"
-                        onClick={confirmChange}
-                        disabled={saving}
-                        sx={{ backgroundColor: "#10b981", "&:hover": { backgroundColor: "#059669" } }}
-                    >
+                    <Button variant="contained" onClick={confirmChange} disabled={saving}>
                         {saving ? "Saving..." : "Confirm"}
                     </Button>
                 </DialogActions>
-            </Dialog>
+            </Sheet>
 
-            <Snackbar
-                open={!!snackbar}
-                autoHideDuration={4000}
-                onClose={() => setSnackbar(null)}
-                anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-            >
-                {snackbar ? (
-                    <Alert severity={snackbar.severity} onClose={() => setSnackbar(null)} variant="filled">
-                        {snackbar.message}
-                    </Alert>
-                ) : undefined}
-            </Snackbar>
+            <Toast toast={toast} onClose={() => setToast(null)} />
         </Box>
     );
 };

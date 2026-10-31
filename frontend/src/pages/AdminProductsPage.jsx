@@ -2,38 +2,32 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
     Box,
-    Container,
     Typography,
     Button,
-    Paper,
-    Table,
-    TableHead,
-    TableRow,
-    TableCell,
-    TableBody,
-    TableContainer,
     TablePagination,
     IconButton,
-    Dialog,
     DialogTitle,
     DialogContent,
     DialogActions,
     TextField,
-    Snackbar,
-    Alert,
-    CircularProgress,
     Tooltip,
     Checkbox,
     FormControlLabel,
     MenuItem
 } from "@mui/material";
-import { Add, Edit, Delete, ArrowBack, UploadFile, Download } from "@mui/icons-material";
+import { Add, Edit, Delete, UploadFile, Download } from "@mui/icons-material";
 import InputAdornment from "@mui/material/InputAdornment";
 import { useAuth } from "../context/AuthContext";
+import TopBar from "../components/ui/TopBar";
+import Money from "../components/ui/Money";
+import Toast from "../components/ui/Toast";
+import Sheet from "../components/ui/Sheet";
+import ResponsiveRows from "../components/ui/ResponsiveRows";
 
 const API_URL = `${import.meta.env.VITE_SERVER_URL}/api/v1/products`;
 const EMPTY_FORM = { barcode: "", name: "", price: "", category: "General", stock: "0", trackStock: false, gstRate: "5", taxInclusive: true };
 const GST_RATES = [0, 5, 12, 18, 28];
+const LOW_STOCK_LEVEL = 5; // same level the server uses for the low-stock list
 
 // Minimal CSV parser: handles quoted fields, escaped quotes and Windows line endings
 const parseCsv = (text) => {
@@ -120,7 +114,7 @@ const AdminProductsPage = () => {
     const [saving, setSaving] = useState(false);
 
     const [deleteTarget, setDeleteTarget] = useState(null);
-    const [snackbar, setSnackbar] = useState(null);
+    const [toast, setToast] = useState(null);
 
     // CSV import: importPlan = file waiting for confirmation, importResult = server summary
     const fileInputRef = useRef(null);
@@ -129,7 +123,7 @@ const AdminProductsPage = () => {
     const [importing, setImporting] = useState(false);
     const [lookingUp, setLookingUp] = useState(false);
 
-    const notify = (message, severity = "success") => setSnackbar({ message, severity });
+    const notify = (message, severity = "success") => setToast({ message, severity });
 
     const authHeaders = useCallback(() => ({
         "Content-Type": "application/json",
@@ -149,7 +143,7 @@ const AdminProductsPage = () => {
             setProducts(data.data.products);
             setTotal(data.data.pagination.total);
         } catch (error) {
-            notify(error.message, "error");
+            setToast({ message: error.message, severity: "error" });
         } finally {
             setLoading(false);
         }
@@ -270,10 +264,10 @@ const AdminProductsPage = () => {
 
         try {
             const text = (await file.text()).replace(/^\uFEFF/, "");
-            const products = csvToProducts(parseCsv(text));
-            if (products.length === 0) throw new Error("The file has no product rows");
-            if (products.length > 500) throw new Error("Please import at most 500 products at a time");
-            setImportPlan({ fileName: file.name, products });
+            const rows = csvToProducts(parseCsv(text));
+            if (rows.length === 0) throw new Error("The file has no product rows");
+            if (rows.length > 500) throw new Error("Please import at most 500 products at a time");
+            setImportPlan({ fileName: file.name, products: rows });
         } catch (error) {
             notify(error.message, "error");
         }
@@ -342,51 +336,88 @@ const AdminProductsPage = () => {
 
     if (!isAdmin) {
         return (
-            <Container maxWidth="sm" sx={{ py: 8, textAlign: "center" }}>
-                <Typography variant="h5" fontWeight="600" gutterBottom>
-                    Admins only
-                </Typography>
-                <Typography variant="body1" sx={{ color: "#64748b", mb: 3 }}>
-                    Your account does not have permission to manage products.
-                </Typography>
-                <Button variant="outlined" onClick={() => navigate("/dashboard")}>
-                    Back to dashboard
-                </Button>
-            </Container>
+            <Box sx={{ minHeight: "100vh" }}>
+                <TopBar title="Manage products" backTo="/dashboard" />
+                <Box sx={{ maxWidth: 480, mx: "auto", px: 3, py: 8, textAlign: "center" }}>
+                    <Typography component="h2" variant="h5" gutterBottom>Admins only</Typography>
+                    <Typography color="text.secondary" sx={{ mb: 3 }}>
+                        Your account does not have permission to manage products.
+                    </Typography>
+                    <Button variant="outlined" onClick={() => navigate("/dashboard")}>Back to dashboard</Button>
+                </Box>
+            </Box>
         );
     }
 
+    const columns = [
+        {
+            label: "Name",
+            primary: true,
+            render: (product) => (
+                <>
+                    {product.name}
+                    <Typography component="span" variant="body2" color="text.secondary" sx={{ display: "block", fontFamily: "monospace" }}>
+                        {product.barcode}
+                    </Typography>
+                </>
+            )
+        },
+        { label: "Category", render: (product) => product.category },
+        {
+            label: "GST",
+            render: (product) => `${product.gstRate ?? 18}% ${(product.taxInclusive ?? false) ? "included" : "added"}`
+        },
+        { label: "Price", align: "right", render: (product) => <Money value={product.price} /> },
+        {
+            label: "Stock",
+            align: "right",
+            render: (product) => {
+                if (product.trackStock !== true) return <Typography component="span" variant="body2" color="text.secondary">Not tracked</Typography>;
+                const stock = product.stock ?? 0;
+                const low = stock <= LOW_STOCK_LEVEL;
+                return (
+                    <Typography component="span" sx={{ fontVariantNumeric: "tabular-nums", color: low ? "error.main" : "inherit", fontWeight: low ? 700 : 400 }}>
+                        {stock}{low ? " (low)" : ""}
+                    </Typography>
+                );
+            }
+        },
+        {
+            label: "Actions",
+            align: "right",
+            actions: true,
+            render: (product) => (
+                <>
+                    <Tooltip title="Edit">
+                        <IconButton aria-label={`Edit ${product.name}`} onClick={() => openEditDialog(product)}>
+                            <Edit fontSize="small" />
+                        </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Delete">
+                        <IconButton aria-label={`Delete ${product.name}`} color="error" onClick={() => setDeleteTarget(product)}>
+                            <Delete fontSize="small" />
+                        </IconButton>
+                    </Tooltip>
+                </>
+            )
+        }
+    ];
+
     return (
-        <Box sx={{ minHeight: "100vh", backgroundColor: "#f8fafc", py: 4 }}>
-            <Container maxWidth="lg">
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 3, flexWrap: "wrap", gap: 2 }}>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                        <Tooltip title="Back to dashboard">
-                            <IconButton onClick={() => navigate("/dashboard")}>
-                                <ArrowBack />
-                            </IconButton>
-                        </Tooltip>
-                        <Typography variant="h4" fontWeight="700" sx={{ color: "#1e293b" }}>
-                            Manage Products
-                        </Typography>
-                    </Box>
-                    <Button
-                        variant="contained"
-                        startIcon={<Add />}
-                        onClick={openAddDialog}
-                        sx={{ backgroundColor: "#10b981", "&:hover": { backgroundColor: "#059669" } }}
-                    >
+        <Box sx={{ minHeight: "100vh" }}>
+            <TopBar title="Manage products" backTo="/dashboard" />
+
+            <Box sx={{ maxWidth: 1040, mx: "auto", px: { xs: 2, sm: 3 }, pt: 3, pb: 8 }}>
+                <Box sx={{ display: "flex", gap: 1, mb: 2, flexWrap: "wrap", alignItems: "center" }}>
+                    <Button variant="contained" startIcon={<Add />} onClick={openAddDialog}>
                         Add product
                     </Button>
-                </Box>
-
-                <Box sx={{ display: "flex", gap: 1, mb: 2, flexWrap: "wrap" }}>
                     <input ref={fileInputRef} type="file" accept=".csv,text/csv" hidden onChange={handleFileChosen} />
                     <Button variant="outlined" startIcon={<UploadFile />} onClick={() => fileInputRef.current?.click()}>
                         Import CSV
                     </Button>
                     <Button startIcon={<Download />} onClick={downloadTemplate}>
-                        Download template
+                        Template
                     </Button>
                     <FormControlLabel
                         sx={{ ml: { sm: "auto" } }}
@@ -403,85 +434,33 @@ const AdminProductsPage = () => {
                     />
                 </Box>
 
-                <Paper elevation={0} sx={{ border: "1px solid #f1f5f9", borderRadius: 2 }}>
-                    <TableContainer>
-                        <Table>
-                            <TableHead>
-                                <TableRow>
-                                    <TableCell><strong>Barcode</strong></TableCell>
-                                    <TableCell><strong>Name</strong></TableCell>
-                                    <TableCell><strong>Category</strong></TableCell>
-                                    <TableCell><strong>GST</strong></TableCell>
-                                    <TableCell align="right"><strong>Price (₹)</strong></TableCell>
-                                    <TableCell align="right"><strong>Stock</strong></TableCell>
-                                    <TableCell align="right"><strong>Actions</strong></TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {loading ? (
-                                    <TableRow>
-                                        <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
-                                            <CircularProgress size={32} sx={{ color: "#10b981" }} />
-                                        </TableCell>
-                                    </TableRow>
-                                ) : products.length === 0 ? (
-                                    <TableRow>
-                                        <TableCell colSpan={7} align="center" sx={{ py: 6, color: "#64748b" }}>
-                                            {lowStockOnly
-                                                ? "No tracked product is running low."
-                                                : "No products yet. Click \"Add product\" to create the first one."}
-                                        </TableCell>
-                                    </TableRow>
-                                ) : (
-                                    products.map((product) => (
-                                        <TableRow key={product.barcode} hover>
-                                            <TableCell sx={{ fontFamily: "monospace" }}>{product.barcode}</TableCell>
-                                            <TableCell>{product.name}</TableCell>
-                                            <TableCell>{product.category}</TableCell>
-                                            <TableCell>
-                                                {(product.gstRate ?? 18)}% {(product.taxInclusive ?? false) ? "included" : "added"}
-                                            </TableCell>
-                                            <TableCell align="right">{Number(product.price).toFixed(2)}</TableCell>
-                                            <TableCell align="right" sx={product.trackStock === true && (product.stock ?? 0) <= 5 ? { color: "error.main", fontWeight: 600 } : undefined}>
-                                                {product.trackStock === true ? (product.stock ?? 0) : "Not tracked"}
-                                            </TableCell>
-                                            <TableCell align="right">
-                                                <Tooltip title="Edit">
-                                                    <IconButton onClick={() => openEditDialog(product)}>
-                                                        <Edit fontSize="small" />
-                                                    </IconButton>
-                                                </Tooltip>
-                                                <Tooltip title="Delete">
-                                                    <IconButton color="error" onClick={() => setDeleteTarget(product)}>
-                                                        <Delete fontSize="small" />
-                                                    </IconButton>
-                                                </Tooltip>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
-                                )}
-                            </TableBody>
-                        </Table>
-                    </TableContainer>
-                    <TablePagination
-                        component="div"
-                        count={total}
-                        page={page}
-                        onPageChange={(event, newPage) => setPage(newPage)}
-                        rowsPerPage={rowsPerPage}
-                        onRowsPerPageChange={(event) => {
-                            setRowsPerPage(parseInt(event.target.value, 10));
-                            setPage(0);
-                        }}
-                        rowsPerPageOptions={[10, 25, 50]}
-                    />
-                </Paper>
-            </Container>
+                <ResponsiveRows
+                    columns={columns}
+                    rows={products}
+                    rowKey={(product) => product.barcode}
+                    loading={loading}
+                    emptyText={lowStockOnly ? "No tracked product is running low." : "No products yet. Add the first one."}
+                    footer={
+                        <TablePagination
+                            component="div"
+                            count={total}
+                            page={page}
+                            onPageChange={(event, newPage) => setPage(newPage)}
+                            rowsPerPage={rowsPerPage}
+                            onRowsPerPageChange={(event) => {
+                                setRowsPerPage(parseInt(event.target.value, 10));
+                                setPage(0);
+                            }}
+                            rowsPerPageOptions={[10, 25, 50]}
+                        />
+                    }
+                />
+            </Box>
 
-            {/* Add / edit dialog */}
-            <Dialog open={dialogOpen} onClose={() => !saving && setDialogOpen(false)} fullWidth maxWidth="sm">
+            {/* Add / edit */}
+            <Sheet open={dialogOpen} onClose={() => !saving && setDialogOpen(false)}>
                 <DialogTitle>{editingBarcode ? "Edit product" : "Add product"}</DialogTitle>
-                <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "16px !important" }}>
+                <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "8px !important" }}>
                     <TextField
                         label="Barcode"
                         value={form.barcode}
@@ -509,12 +488,12 @@ const AdminProductsPage = () => {
                         required
                     />
                     <TextField
-                        label="Price (₹, before tax)"
+                        label={"Shelf price (₹)"}
                         type="number"
                         value={form.price}
                         onChange={handleChange("price")}
                         error={!!errors.price}
-                        helperText={errors.price}
+                        helperText={errors.price || (form.taxInclusive ? "The price printed on the shelf, GST included" : "The price before GST. GST is added at checkout")}
                         required
                     />
                     <TextField
@@ -522,6 +501,27 @@ const AdminProductsPage = () => {
                         value={form.category}
                         onChange={handleChange("category")}
                     />
+                    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}>
+                        <TextField
+                            select
+                            label="GST rate"
+                            value={form.gstRate}
+                            onChange={handleChange("gstRate")}
+                        >
+                            {GST_RATES.map((rate) => (
+                                <MenuItem key={rate} value={String(rate)}>{rate}%</MenuItem>
+                            ))}
+                        </TextField>
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={form.taxInclusive}
+                                    onChange={(event) => setForm((prev) => ({ ...prev, taxInclusive: event.target.checked }))}
+                                />
+                            }
+                            label="Shelf price includes GST"
+                        />
+                    </Box>
                     <FormControlLabel
                         control={
                             <Checkbox
@@ -540,63 +540,46 @@ const AdminProductsPage = () => {
                         error={!!errors.stock}
                         helperText={errors.stock || (form.trackStock ? "Shoppers cannot buy more than this. Stock drops when an order is paid." : "Turn on tracking to limit how many can be sold")}
                     />
-                    <TextField
-                        select
-                        label="GST rate"
-                        value={form.gstRate}
-                        onChange={handleChange("gstRate")}
-                        helperText="Pick the rate that applies to this product"
-                    >
-                        {GST_RATES.map((rate) => (
-                            <MenuItem key={rate} value={String(rate)}>{rate}%</MenuItem>
-                        ))}
-                    </TextField>
-                    <FormControlLabel
-                        control={
-                            <Checkbox
-                                checked={form.taxInclusive}
-                                onChange={(event) => setForm((prev) => ({ ...prev, taxInclusive: event.target.checked }))}
-                            />
-                        }
-                        label="The shelf price already includes GST"
-                    />
                 </DialogContent>
                 <DialogActions sx={{ px: 3, pb: 2 }}>
                     <Button onClick={() => setDialogOpen(false)} disabled={saving}>Cancel</Button>
-                    <Button
-                        variant="contained"
-                        onClick={handleSave}
-                        disabled={saving}
-                        sx={{ backgroundColor: "#10b981", "&:hover": { backgroundColor: "#059669" } }}
-                    >
+                    <Button variant="contained" onClick={handleSave} disabled={saving}>
                         {saving ? "Saving..." : "Save"}
                     </Button>
                 </DialogActions>
-            </Dialog>
+            </Sheet>
 
-            {/* CSV import: confirm */}
-            <Dialog open={!!importPlan} onClose={() => !importing && setImportPlan(null)}>
+            {/* CSV import: preview and confirm */}
+            <Sheet open={!!importPlan} onClose={() => !importing && setImportPlan(null)}>
                 <DialogTitle>Import products?</DialogTitle>
                 <DialogContent>
-                    <Typography>
+                    <Typography sx={{ mb: 2 }}>
                         {importPlan?.products.length} rows found in {importPlan?.fileName}. New barcodes are added; barcodes that already exist are updated with the name, price, category, stock and tax settings in the file.
                     </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                        First {Math.min(5, importPlan?.products.length || 0)} rows
+                    </Typography>
+                    {importPlan?.products.slice(0, 5).map((row, index) => (
+                        <Box key={index} sx={{ display: "flex", justifyContent: "space-between", gap: 2, py: 0.75, borderTop: 1, borderColor: "divider" }}>
+                            <Typography variant="body2" noWrap sx={{ minWidth: 0 }}>
+                                <span style={{ fontFamily: "monospace" }}>{row.barcode}</span> {"·"} {row.name}
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                                {"₹"}{row.price}
+                            </Typography>
+                        </Box>
+                    ))}
                 </DialogContent>
                 <DialogActions sx={{ px: 3, pb: 2 }}>
                     <Button onClick={() => setImportPlan(null)} disabled={importing}>Cancel</Button>
-                    <Button
-                        variant="contained"
-                        onClick={runImport}
-                        disabled={importing}
-                        sx={{ backgroundColor: "#10b981", "&:hover": { backgroundColor: "#059669" } }}
-                    >
+                    <Button variant="contained" onClick={runImport} disabled={importing}>
                         {importing ? "Importing..." : "Import"}
                     </Button>
                 </DialogActions>
-            </Dialog>
+            </Sheet>
 
             {/* CSV import: result */}
-            <Dialog open={!!importResult} onClose={() => setImportResult(null)} fullWidth maxWidth="sm">
+            <Sheet open={!!importResult} onClose={() => setImportResult(null)}>
                 <DialogTitle>Import finished</DialogTitle>
                 <DialogContent>
                     <Typography>
@@ -618,10 +601,10 @@ const AdminProductsPage = () => {
                 <DialogActions sx={{ px: 3, pb: 2 }}>
                     <Button onClick={() => setImportResult(null)}>Close</Button>
                 </DialogActions>
-            </Dialog>
+            </Sheet>
 
             {/* Delete confirmation */}
-            <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
+            <Sheet open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
                 <DialogTitle>Delete product?</DialogTitle>
                 <DialogContent>
                     <Typography>
@@ -632,23 +615,11 @@ const AdminProductsPage = () => {
                     <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
                     <Button color="error" variant="contained" onClick={handleDelete}>Delete</Button>
                 </DialogActions>
-            </Dialog>
+            </Sheet>
 
-            <Snackbar
-                open={!!snackbar}
-                autoHideDuration={4000}
-                onClose={() => setSnackbar(null)}
-                anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-            >
-                {snackbar ? (
-                    <Alert severity={snackbar.severity} onClose={() => setSnackbar(null)} variant="filled">
-                        {snackbar.message}
-                    </Alert>
-                ) : undefined}
-            </Snackbar>
+            <Toast toast={toast} onClose={() => setToast(null)} />
         </Box>
     );
 };
 
 export default AdminProductsPage;
-
