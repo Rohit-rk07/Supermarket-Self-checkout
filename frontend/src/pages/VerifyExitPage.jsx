@@ -1,22 +1,11 @@
 import { useState, useCallback, lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-    Box,
-    Container,
-    Typography,
-    Button,
-    Paper,
-    TextField,
-    Table,
-    TableBody,
-    TableCell,
-    TableRow,
-    IconButton,
-    Tooltip,
-    CircularProgress
-} from "@mui/material";
-import { ArrowBack, QrCodeScanner } from "@mui/icons-material";
+import { Box, Typography, Button, TextField, CircularProgress } from "@mui/material";
+import { QrCodeScanner } from "@mui/icons-material";
 import { useAuth } from "../context/AuthContext";
+import TopBar from "../components/ui/TopBar";
+import Money from "../components/ui/Money";
+import { tokens, fonts } from "../theme/theme";
 
 const BarcodeScanner = lazy(() => import("../components/BarcodeScanner"));
 
@@ -24,13 +13,13 @@ const API_URL = `${import.meta.env.VITE_SERVER_URL}/api/v1/orders`;
 
 // What staff see for each result from the server
 const VERDICTS = {
-    PAID: { label: "PAID", hint: "Payment confirmed. The shopper may leave.", color: "#166534", background: "#dcfce7" },
-    EXIT_CONFIRMED: { label: "EXIT CONFIRMED", hint: "Recorded. This receipt cannot be used again.", color: "#166534", background: "#dcfce7" },
-    ALREADY_EXITED: { label: "ALREADY USED", hint: "This receipt was already used to leave the store.", color: "#92400e", background: "#fef3c7" },
-    NOT_PAID: { label: "NOT PAID", hint: "Do not let the shopper leave. Send them back to pay.", color: "#991b1b", background: "#fee2e2" },
-    CANCELLED: { label: "CANCELLED", hint: "This order was cancelled and is not valid.", color: "#991b1b", background: "#fee2e2" },
-    NOT_FOUND: { label: "NOT FOUND", hint: "No order matches this code.", color: "#991b1b", background: "#fee2e2" },
-    ERROR: { label: "ERROR", hint: "Something went wrong. Try again.", color: "#991b1b", background: "#fee2e2" }
+    PAID: { label: "PAID", hint: "Payment confirmed. Check the items, then confirm exit.", ...tokens.success },
+    EXIT_CONFIRMED: { label: "EXIT CONFIRMED", hint: "Recorded. This receipt cannot be used again.", ...tokens.success },
+    ALREADY_EXITED: { label: "ALREADY USED", hint: "This receipt was already used to leave the store.", ...tokens.warning },
+    NOT_PAID: { label: "NOT PAID", hint: "Do not let the shopper leave. Send them back to pay.", ...tokens.danger },
+    CANCELLED: { label: "CANCELLED", hint: "This order was cancelled and is not valid.", ...tokens.danger },
+    NOT_FOUND: { label: "NOT FOUND", hint: "No order matches this code.", ...tokens.danger },
+    ERROR: { label: "ERROR", hint: "Something went wrong. Try again.", ...tokens.danger }
 };
 
 const VerifyExitPage = () => {
@@ -112,77 +101,75 @@ const VerifyExitPage = () => {
 
     if (!canVerify) {
         return (
-            <Container maxWidth="sm" sx={{ py: 8, textAlign: "center" }}>
-                <Typography variant="h5" fontWeight="600" gutterBottom>
-                    Staff only
-                </Typography>
-                <Typography variant="body1" sx={{ color: "#64748b", mb: 3 }}>
-                    Your account does not have permission to verify receipts.
-                </Typography>
-                <Button variant="outlined" onClick={() => navigate("/dashboard")}>
-                    Back to dashboard
-                </Button>
-            </Container>
+            <Box sx={{ minHeight: "100vh" }}>
+                <TopBar title="Verify receipt" backTo="/dashboard" />
+                <Box sx={{ maxWidth: 480, mx: "auto", px: 3, py: 8, textAlign: "center" }}>
+                    <Typography component="h2" variant="h5" gutterBottom>Staff only</Typography>
+                    <Typography color="text.secondary" sx={{ mb: 3 }}>
+                        Your account does not have permission to verify receipts.
+                    </Typography>
+                    <Button variant="outlined" onClick={() => navigate("/dashboard")}>Back to dashboard</Button>
+                </Box>
+            </Box>
         );
     }
 
     const style = verdict ? (VERDICTS[verdict.result] || VERDICTS.ERROR) : null;
     const order = verdict?.order;
+    const items = order?.items || [];
+    const itemCount = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
 
     return (
-        <Box sx={{ minHeight: "100vh", backgroundColor: "#f8fafc", py: 4 }}>
-            <Container maxWidth="sm">
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 3 }}>
-                    <Tooltip title="Back to dashboard">
-                        <IconButton onClick={() => navigate("/dashboard")}>
-                            <ArrowBack />
-                        </IconButton>
-                    </Tooltip>
-                    <Typography variant="h4" fontWeight="700" sx={{ color: "#1e293b" }}>
-                        Verify Receipt
-                    </Typography>
-                </Box>
+        <Box sx={{ minHeight: "100vh" }}>
+            <TopBar title="Verify receipt" backTo="/dashboard" />
 
-                <Paper elevation={0} sx={{ p: 3, mb: 3, border: "1px solid #f1f5f9", borderRadius: 2 }}>
-                    <Button
-                        variant="contained"
+            <Box sx={{ maxWidth: 560, mx: "auto", px: { xs: 2, sm: 3 }, pt: 3, pb: 8 }}>
+                <Button
+                    variant="contained"
+                    fullWidth
+                    size="large"
+                    startIcon={<QrCodeScanner />}
+                    onClick={() => setScannerOpen(true)}
+                    sx={{ mb: 2 }}
+                >
+                    Scan receipt QR
+                </Button>
+
+                <Box sx={{ display: "flex", gap: 1, mb: 3 }}>
+                    <TextField
                         fullWidth
-                        size="large"
-                        startIcon={<QrCodeScanner />}
-                        onClick={() => setScannerOpen(true)}
-                        sx={{ mb: 2, py: 1.5, backgroundColor: "#10b981", "&:hover": { backgroundColor: "#059669" } }}
-                    >
-                        Scan receipt QR
+                        size="small"
+                        label="Or type the order number"
+                        value={code}
+                        onChange={(event) => setCode(event.target.value)}
+                        onKeyDown={(event) => { if (event.key === "Enter") lookup(code); }}
+                    />
+                    <Button variant="outlined" onClick={() => lookup(code)} disabled={loading || !code.trim()} sx={{ whiteSpace: "nowrap", flexShrink: 0 }}>
+                        Look up
                     </Button>
-
-                    <Box sx={{ display: "flex", gap: 1 }}>
-                        <TextField
-                            fullWidth
-                            size="small"
-                            label="Or type the order number"
-                            value={code}
-                            onChange={(event) => setCode(event.target.value)}
-                            onKeyDown={(event) => { if (event.key === "Enter") lookup(code); }}
-                        />
-                        <Button variant="outlined" onClick={() => lookup(code)} disabled={loading || !code.trim()} sx={{ whiteSpace: "nowrap", flexShrink: 0 }}>
-                            Look up
-                        </Button>
-                    </Box>
-                </Paper>
+                </Box>
 
                 {loading && (
                     <Box sx={{ textAlign: "center", py: 4 }}>
-                        <CircularProgress sx={{ color: "#10b981" }} />
+                        <CircularProgress aria-label="Checking the receipt" />
                     </Box>
                 )}
 
                 {verdict && style && (
-                    <Paper elevation={0} sx={{ border: "1px solid #f1f5f9", borderRadius: 2, overflow: "hidden" }}>
-                        <Box sx={{ backgroundColor: style.background, color: style.color, textAlign: "center", p: 3 }}>
-                            <Typography variant="h3" fontWeight="800">
+                    <Box>
+                        {/* 1. The verdict, as large as possible */}
+                        <Box
+                            role="status"
+                            aria-live="assertive"
+                            sx={{ backgroundColor: style.bg, color: style.fg, textAlign: "center", borderRadius: "10px", px: 2, py: 4 }}
+                        >
+                            <Typography
+                                component="h2"
+                                sx={{ fontFamily: fonts.serif, fontWeight: 700, fontSize: { xs: "2.4rem", sm: "3rem" }, lineHeight: 1.1 }}
+                            >
                                 {style.label}
                             </Typography>
-                            <Typography variant="body1" sx={{ mt: 1 }}>
+                            <Typography sx={{ mt: 1.5, fontWeight: 600 }}>
                                 {verdict.message && verdict.result !== "NOT_FOUND" ? verdict.message : style.hint}
                             </Typography>
                             {verdict.result === "ALREADY_EXITED" && order?.exitedAt && (
@@ -193,27 +180,33 @@ const VerifyExitPage = () => {
                         </Box>
 
                         {order && (
-                            <Box sx={{ p: 3 }}>
-                                <Typography variant="subtitle2" sx={{ color: "#64748b" }}>
-                                    Order {order.orderNumber}
-                                    {order.userName ? ` · ${order.userName}` : ""}
+                            <Box sx={{ mt: 3 }}>
+                                {/* 2. How many items, then the list, so staff can compare with the bag */}
+                                <Typography variant="body2" color="text.secondary">
+                                    Order {order.orderNumber}{order.userName ? ` · ${order.userName}` : ""}
+                                </Typography>
+                                <Typography component="h3" sx={{ fontFamily: fonts.serif, fontWeight: 700, fontSize: "2rem", mb: 1 }}>
+                                    {itemCount} {itemCount === 1 ? "item" : "items"}
                                 </Typography>
 
-                                <Table size="small" sx={{ my: 2 }}>
-                                    <TableBody>
-                                        {(order.items || []).map((item, index) => (
-                                            <TableRow key={index}>
-                                                <TableCell sx={{ pl: 0 }}>{item.name}</TableCell>
-                                                <TableCell align="right">{item.quantity} × ₹{Number(item.price).toFixed(2)}</TableCell>
-                                            </TableRow>
-                                        ))}
-                                        <TableRow>
-                                            <TableCell sx={{ pl: 0, fontWeight: 700 }}>Total (incl. GST)</TableCell>
-                                            <TableCell align="right" sx={{ fontWeight: 700 }}>₹{Number(order.total).toFixed(2)}</TableCell>
-                                        </TableRow>
-                                    </TableBody>
-                                </Table>
+                                {items.map((item, index) => (
+                                    <Box
+                                        key={index}
+                                        sx={{ display: "flex", justifyContent: "space-between", gap: 2, py: 1.25, borderTop: 1, borderColor: "divider" }}
+                                    >
+                                        <Typography fontWeight={600} sx={{ minWidth: 0 }}>
+                                            {item.quantity} {"×"} {item.name}
+                                        </Typography>
+                                        <Money value={item.price * item.quantity} />
+                                    </Box>
+                                ))}
 
+                                <Box sx={{ display: "flex", justifyContent: "space-between", py: 1.5, borderTop: 1, borderColor: "divider" }}>
+                                    <Typography fontWeight={700}>Total (incl. GST)</Typography>
+                                    <Money value={order.total} sx={{ fontWeight: 700 }} />
+                                </Box>
+
+                                {/* 3. Only now, the action */}
                                 {verdict.result === "PAID" && (
                                     <Button
                                         variant="contained"
@@ -221,7 +214,7 @@ const VerifyExitPage = () => {
                                         size="large"
                                         onClick={confirmExit}
                                         disabled={confirming}
-                                        sx={{ backgroundColor: "#10b981", "&:hover": { backgroundColor: "#059669" } }}
+                                        sx={{ mt: 1 }}
                                     >
                                         {confirming ? "Confirming..." : "Confirm exit"}
                                     </Button>
@@ -229,19 +222,19 @@ const VerifyExitPage = () => {
                             </Box>
                         )}
 
-                        <Box sx={{ p: 2, borderTop: "1px solid #f1f5f9", textAlign: "center" }}>
+                        <Box sx={{ textAlign: "center", mt: 3 }}>
                             <Button onClick={reset}>Verify another receipt</Button>
                         </Box>
-                    </Paper>
+                    </Box>
                 )}
-            </Container>
+            </Box>
 
             {scannerOpen && (
                 <Suspense fallback={null}>
                     <BarcodeScanner
                         onScan={handleScan}
                         closeScanner={closeScanner}
-                        title="📸 Scan the receipt QR"
+                        title="Scan the receipt QR"
                     />
                 </Suspense>
             )}
