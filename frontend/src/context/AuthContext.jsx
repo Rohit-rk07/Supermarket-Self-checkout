@@ -9,6 +9,16 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
+    // The user details saved at login, used only when the server cannot be asked right now
+    const readSavedUser = (token) => {
+        try {
+            const saved = JSON.parse(localStorage.getItem('user') || 'null');
+            return saved ? { ...saved, token } : null;
+        } catch {
+            return null;
+        }
+    };
+
     // Check for existing token on app load
     useEffect(() => {
         const checkAuthState = async () => {
@@ -33,17 +43,20 @@ export const AuthProvider = ({ children }) => {
                             token: token,
                             role: data.data.role
                         });
-                    } else {
-                        // Token is invalid, remove it
+                    } else if (response.status === 401 || response.status === 403) {
+                        // The server says this token is not valid (expired or revoked): sign out
                         localStorage.removeItem('authToken');
                         localStorage.removeItem('token');
                         setUser(null);
+                    } else {
+                        // The server is busy or rate limiting (429, 5xx). The token may still be fine,
+                        // so stay signed in with the details saved at login instead of throwing the shopper out.
+                        setUser(readSavedUser(token));
                     }
                 } catch (error) {
+                    // No network right now: keep the session; the next request will tell us if the token is bad
                     console.error('Auth check error:', error);
-                    localStorage.removeItem('authToken');
-                    localStorage.removeItem('token');
-                    setUser(null);
+                    setUser(readSavedUser(token));
                 }
             }
             setLoading(false);

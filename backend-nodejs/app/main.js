@@ -38,10 +38,12 @@ let isDBConnecting = false;
 // Security middleware
 app.use(helmet());
 
-// Rate limiting
+// Rate limiting. A shop's Wi-Fi puts every shopper behind one IP address, and one shopping trip
+// makes dozens of calls, so the limit per IP is generous. Set RATE_LIMIT_MAX to change it.
+// (The OTP routes have their own, much stricter limits.)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: Number(process.env.RATE_LIMIT_MAX) || 1000,
   message: {
     error: 'Too many requests',
     details: 'Please try again later'

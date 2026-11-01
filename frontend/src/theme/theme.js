@@ -215,6 +215,20 @@ export const theme = createTheme({
         root: { borderColor: tokens.line },
       },
     },
+    // On a phone the pager keeps only the range and the two arrows, so it never runs off the screen
+    MuiTablePagination: {
+      styleOverrides: {
+        root: ({ theme }) => ({
+          [theme.breakpoints.down('sm')]: {
+            '& .MuiTablePagination-selectLabel, & .MuiTablePagination-input': { display: 'none' },
+            '& .MuiTablePagination-toolbar': { paddingLeft: 8, paddingRight: 8, justifyContent: 'center' },
+            '& .MuiTablePagination-spacer': { display: 'none' },
+            '& .MuiTablePagination-displayedRows': { margin: 0 },
+            '& .MuiTablePagination-actions': { marginLeft: 8 },
+          },
+        }),
+      },
+    },
   },
 });
 

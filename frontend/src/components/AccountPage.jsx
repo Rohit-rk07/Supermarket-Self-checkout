@@ -139,7 +139,7 @@ const AccountPage = () => {
                 aria-label="Receipt"
                 PaperProps={{ sx: { backgroundColor: "background.default", boxShadow: "none" } }}
             >
-                <DialogContent sx={{ pt: 4, pb: 3 }}>
+                <DialogContent tabIndex={0} sx={{ pt: 4, pb: 3 }}>
                     <Receipt order={selected} />
                 </DialogContent>
                 <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
