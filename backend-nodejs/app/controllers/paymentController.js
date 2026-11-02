@@ -21,11 +21,18 @@ const hasValidCredentials = () => {
   );
 };
 
-const getRazorpayClient = () =>
+// Tests swap this for a fake so they never call the real Razorpay
+let razorpayClientFactory = () =>
   new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID,
     key_secret: process.env.RAZORPAY_KEY_SECRET
   });
+
+export const setRazorpayClientFactory = (factory) => {
+  razorpayClientFactory = factory;
+};
+
+const getRazorpayClient = () => razorpayClientFactory();
 
 const safeEqual = (expected, received) => {
   const expectedBuffer = Buffer.from(String(expected));

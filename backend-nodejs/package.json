@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node app/main.js",
     "dev": "nodemon app/main.js",
-    "seed": "node app/utils/seedDatabase.js"
+    "seed": "node app/utils/seedDatabase.js",
+    "test": "node --test --test-concurrency=1 tests/"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -23,6 +24,7 @@
     "twilio": "^5.8.0"
   },
   "devDependencies": {
+    "mongodb-memory-server": "^11.3.0",
     "nodemon": "^3.0.2"
   },
   "keywords": [],
