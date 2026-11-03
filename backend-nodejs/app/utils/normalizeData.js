@@ -9,6 +9,7 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import dns from 'dns';
 
 const DELIVERY_FIELDS = ['deliveryAddress', 'estimatedDelivery', 'actualDelivery'];
 
@@ -38,6 +39,10 @@ export const normalizeData = async (db, { apply = false } = {}) => {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   dotenv.config();
+  // Same fix the server uses (see database.js): some networks refuse the SRV lookup for MongoDB Atlas
+  if (process.env.DNS_SERVERS) {
+    dns.setServers(process.env.DNS_SERVERS.split(',').map((server) => server.trim()).filter(Boolean));
+  }
   const apply = process.argv.includes('--apply');
   await mongoose.connect(process.env.MONGODB_URI, { dbName: process.env.MONGODB_DB_NAME || 'supermarket-checkout' });
   const result = await normalizeData(mongoose.connection.db, { apply });
