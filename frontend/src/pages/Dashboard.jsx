@@ -48,6 +48,9 @@ const Dashboard = () => {
   const [adding, setAdding] = useState(false);
   const [toast, setToast] = useState(null);
   const [payments, setPayments] = useState(null); // webhook status, admins only
+  const [bagPercent, setBagPercent] = useState(""); // share of paid bags picked for a check at the exit, admins only
+  const [bagSaved, setBagSaved] = useState(null); // the value last saved on the server
+  const [bagSaving, setBagSaving] = useState(false);
   const { cart, addToCart, totalItems } = useCart();
   const basketTotal = getBasketTotals(cart).total;
   const { user } = useAuth();
@@ -67,6 +70,39 @@ const Dashboard = () => {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [isAdmin, user?.token]);
+
+  useEffect(() => {
+    if (!isAdmin || !user?.token) return undefined;
+    let cancelled = false;
+    fetch(`${import.meta.env.VITE_SERVER_URL}/api/v1/orders/settings/bag-check`, { headers: { Authorization: `Bearer ${user.token}` } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body) => {
+        if (!cancelled && body?.data) { setBagPercent(String(body.data.percent)); setBagSaved(body.data.percent); }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isAdmin, user?.token]);
+
+  const bagPercentValid = /^\d{1,3}$/.test(bagPercent) && Number(bagPercent) <= 100;
+
+  const saveBagPercent = async () => {
+    setBagSaving(true);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/v1/orders/settings/bag-check`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.token}` },
+        body: JSON.stringify({ percent: Number(bagPercent) }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || "Could not save the bag check setting");
+      setBagSaved(Number(bagPercent));
+      setToast({ severity: "success", message: body.message || "Saved" });
+    } catch (error) {
+      setToast({ severity: "error", message: error.message });
+    } finally {
+      setBagSaving(false);
+    }
+  };
 
   // Look a barcode up on the server and put the product in the basket
   const addByBarcode = async (raw) => {
@@ -185,6 +221,34 @@ const Dashboard = () => {
               </>
             )}
             <Box sx={{ borderTop: 1, borderColor: "divider" }} />
+            {isAdmin && bagSaved !== null && (
+              <Box sx={{ mt: 3 }}>
+                <Typography component="h3" variant="h6">Random bag check</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  Share of paid bags that staff must look inside before letting the shopper out. 0 turns it off, 100 checks every bag.
+                </Typography>
+                <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
+                  <TextField
+                    size="small"
+                    label="Percent of bags"
+                    value={bagPercent}
+                    onChange={(event) => setBagPercent(event.target.value.trim())}
+                    error={!bagPercentValid}
+                    helperText={bagPercentValid ? " " : "Enter a whole number from 0 to 100"}
+                    inputProps={{ inputMode: "numeric", maxLength: 3 }}
+                    sx={{ width: 160 }}
+                  />
+                  <Button
+                    variant="outlined"
+                    onClick={saveBagPercent}
+                    disabled={!bagPercentValid || bagSaving || Number(bagPercent) === bagSaved}
+                    sx={{ mt: 0.25 }}
+                  >
+                    {bagSaving ? "Saving..." : "Save"}
+                  </Button>
+                </Box>
+              </Box>
+            )}
             {isAdmin && payments && (
               <Alert severity={payments.webhookConfigured ? "success" : "warning"} sx={{ mt: 2 }}>
                 {!payments.webhookConfigured

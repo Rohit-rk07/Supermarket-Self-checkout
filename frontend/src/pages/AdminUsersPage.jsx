@@ -19,6 +19,7 @@ import TopBar from "../components/ui/TopBar";
 import Toast from "../components/ui/Toast";
 import Sheet from "../components/ui/Sheet";
 import ResponsiveRows from "../components/ui/ResponsiveRows";
+import { tokens } from "../theme/theme";
 
 const API_URL = `${import.meta.env.VITE_SERVER_URL}/api/v1/users`;
 
@@ -48,6 +49,7 @@ const AdminUsersPage = () => {
     const [search, setSearch] = useState("");
     const [loading, setLoading] = useState(true);
     const [pendingChange, setPendingChange] = useState(null); // { target, role }
+    const [pendingDeactivate, setPendingDeactivate] = useState(null); // the user about to be switched off
     const [saving, setSaving] = useState(false);
     const [toast, setToast] = useState(null);
 
@@ -100,6 +102,28 @@ const AdminUsersPage = () => {
 
             notify(data.message);
             setPendingChange(null);
+            fetchUsers();
+        } catch (error) {
+            notify(error.message, "error");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    // Switch an account off or on. Nothing is deleted, so orders and exit records stay in the history.
+    const setActive = async (target, isActive) => {
+        setSaving(true);
+        try {
+            const response = await fetch(`${API_URL}/${target._id}/active`, {
+                method: "PUT",
+                headers: authHeaders(),
+                body: JSON.stringify({ isActive })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(getMessage(data));
+
+            notify(data.message);
+            setPendingDeactivate(null);
             fetchUsers();
         } catch (error) {
             notify(error.message, "error");
@@ -168,8 +192,30 @@ const AdminUsersPage = () => {
             }
         },
         {
+            label: "Status",
+            render: (person) => (
+                <Chip
+                    size="small"
+                    label={person.isActive === false ? "Deactivated" : "Active"}
+                    sx={person.isActive === false ? { backgroundColor: tokens.danger.bg, color: tokens.danger.fg } : { backgroundColor: tokens.success.bg, color: tokens.success.fg }}
+                />
+            )
+        },
+        {
             label: "Last login",
             render: (person) => (person.lastLogin ? new Date(person.lastLogin).toLocaleString() : "")
+        },
+        {
+            label: "Action",
+            actions: true,
+            render: (person) => {
+                if (String(person._id) === myId) return null;
+                return person.isActive === false ? (
+                    <Button size="small" variant="outlined" disabled={saving} onClick={() => setActive(person, true)}>Reactivate</Button>
+                ) : (
+                    <Button size="small" variant="outlined" color="error" onClick={() => setPendingDeactivate(person)}>Deactivate</Button>
+                );
+            }
         }
     ];
 
@@ -245,6 +291,25 @@ const AdminUsersPage = () => {
                     <Button onClick={() => setPendingChange(null)} disabled={saving}>Cancel</Button>
                     <Button variant="contained" onClick={confirmChange} disabled={saving}>
                         {saving ? "Saving..." : "Confirm"}
+                    </Button>
+                </DialogActions>
+            </Sheet>
+
+            {/* Confirm switching an account off */}
+            <Sheet open={!!pendingDeactivate} onClose={() => !saving && setPendingDeactivate(null)} maxWidth="xs">
+                <DialogTitle>Deactivate this account?</DialogTitle>
+                <DialogContent>
+                    <Typography gutterBottom>
+                        {pendingDeactivate?.name || pendingDeactivate?.phoneNumber} will be signed out and cannot sign in again until you reactivate them.
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        Nothing is deleted: their orders and the exits they confirmed stay in the history.
+                    </Typography>
+                </DialogContent>
+                <DialogActions sx={{ px: 3, pb: 2 }}>
+                    <Button onClick={() => setPendingDeactivate(null)} disabled={saving}>Cancel</Button>
+                    <Button variant="contained" color="error" onClick={() => setActive(pendingDeactivate, false)} disabled={saving}>
+                        {saving ? "Saving..." : "Deactivate"}
                     </Button>
                 </DialogActions>
             </Sheet>

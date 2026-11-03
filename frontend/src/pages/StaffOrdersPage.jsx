@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Box, Typography, Button, TablePagination, TextField, MenuItem, IconButton, Tooltip, Alert } from "@mui/material";
+import { Box, Typography, Button, TablePagination, TextField, MenuItem, IconButton, Tooltip, Alert, DialogTitle, DialogContent, DialogActions } from "@mui/material";
 import { Refresh } from "@mui/icons-material";
 import { useAuth } from "../context/AuthContext";
 import TopBar from "../components/ui/TopBar";
@@ -7,6 +7,7 @@ import Money from "../components/ui/Money";
 import StatusChip from "../components/ui/StatusChip";
 import Toast from "../components/ui/Toast";
 import ResponsiveRows from "../components/ui/ResponsiveRows";
+import Sheet from "../components/ui/Sheet";
 import { fonts } from "../theme/theme";
 
 const API_URL = `${import.meta.env.VITE_SERVER_URL}/api/v1/orders`;
@@ -16,7 +17,8 @@ const PAYMENT_FILTERS = [
     { value: "paid", label: "Paid" },
     { value: "pending", label: "Unpaid" },
     { value: "failed", label: "Failed" },
-    { value: "expired", label: "Expired" }
+    { value: "expired", label: "Expired" },
+    { value: "refunded", label: "Refunded" }
 ];
 
 // Staff see a name and the last 4 digits only
@@ -47,6 +49,11 @@ const StaffOrdersPage = () => {
     const [error, setError] = useState(null);
     const [toast, setToast] = useState(null);
     const [checkingId, setCheckingId] = useState(null);
+    // The order an admin is about to refund, and why
+    const [refundTarget, setRefundTarget] = useState(null);
+    const [refundReason, setRefundReason] = useState("");
+    const [refunding, setRefunding] = useState(false);
+    const isAdmin = user?.role === "admin";
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -109,6 +116,29 @@ const StaffOrdersPage = () => {
         }
     };
 
+    // Admin: give the shopper their money back through Razorpay
+    const refund = async () => {
+        if (!refundTarget) return;
+        setRefunding(true);
+        try {
+            const response = await fetch(`${API_URL}/${refundTarget._id}/refund`, {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ reason: refundReason.trim() })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || "Could not refund this order");
+            setToast({ severity: "success", message: `${refundTarget.orderNumber}: refunded` });
+            setRefundTarget(null);
+            setRefundReason("");
+            await load();
+        } catch (err) {
+            setToast({ severity: "error", message: err.message });
+        } finally {
+            setRefunding(false);
+        }
+    };
+
     if (!canView) {
         return (
             <Box sx={{ minHeight: "100vh" }}>
@@ -145,21 +175,53 @@ const StaffOrdersPage = () => {
         { label: "Payment", render: (order) => <StatusChip order={order} /> },
         {
             label: "Exit",
-            render: (order) => (order.paymentStatus === "paid"
-                ? <StatusChip status={order.exitedAt ? "exited" : "awaitingExit"} />
-                : null)
+            render: (order) => {
+                if (order.paymentStatus === "refunded") {
+                    return (
+                        <Typography component="span" variant="caption" color="text.secondary">
+                            {order.refundedAt ? `Refunded ${new Date(order.refundedAt).toLocaleString()}` : "Refunded"}
+                            {order.refundReason ? ` · ${order.refundReason}` : ""}
+                        </Typography>
+                    );
+                }
+                if (order.paymentStatus !== "paid") return null;
+                return (
+                    <>
+                        <StatusChip status={order.exitedAt ? "exited" : "awaitingExit"} />
+                        {order.exitedAt && (
+                            <Typography component="span" variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                                {new Date(order.exitedAt).toLocaleString()}
+                                {order.exitedByName ? ` · by ${order.exitedByName}` : ""}
+                                {order.bagChecked
+                                    ? " · bag checked"
+                                    : order.bagCheckRequired === false ? " · not picked for a bag check" : ""}
+                            </Typography>
+                        )}
+                    </>
+                );
+            }
         },
         { label: "Placed", render: (order) => (order.createdAt ? new Date(order.createdAt).toLocaleString() : "") },
         {
             label: "Action",
             actions: true,
             render: (order) => {
-                const canCheck = order.paymentStatus !== "paid" && order.status !== "cancelled" && Boolean(order.razorpayOrderId);
-                return canCheck ? (
-                    <Button size="small" variant="outlined" disabled={checkingId === order._id} onClick={() => checkPayment(order)}>
-                        {checkingId === order._id ? "Checking..." : "Check payment"}
-                    </Button>
-                ) : null;
+                const canCheck = order.paymentStatus !== "paid" && order.paymentStatus !== "refunded" && order.status !== "cancelled" && Boolean(order.razorpayOrderId);
+                if (canCheck) {
+                    return (
+                        <Button size="small" variant="outlined" disabled={checkingId === order._id} onClick={() => checkPayment(order)}>
+                            {checkingId === order._id ? "Checking..." : "Check payment"}
+                        </Button>
+                    );
+                }
+                if (isAdmin && order.paymentStatus === "paid") {
+                    return (
+                        <Button size="small" variant="outlined" color="error" onClick={() => { setRefundTarget(order); setRefundReason(""); }}>
+                            Refund
+                        </Button>
+                    );
+                }
+                return null;
             }
         }
     ];
@@ -193,7 +255,7 @@ const StaffOrdersPage = () => {
                         <StatCard label="Total orders" value={stats.totalOrders} />
                         <StatCard label="Revenue (paid, incl. GST)" value={<Money value={stats.totalRevenue} />} />
                         <StatCard label="Unpaid" value={stats.pendingOrders} />
-                        <StatCard label="Expired / cancelled" value={`${stats.expiredOrders ?? 0} / ${stats.cancelledOrders}`} />
+                        <StatCard label="Expired / cancelled / refunded" value={`${stats.expiredOrders ?? 0} / ${stats.cancelledOrders} / ${stats.refundedOrders ?? 0}`} />
                     </Box>
                 )}
 
@@ -234,6 +296,39 @@ const StaffOrdersPage = () => {
                     }
                 />
             </Box>
+
+            <Sheet open={Boolean(refundTarget)} onClose={() => !refunding && setRefundTarget(null)} maxWidth="xs">
+                <DialogTitle>Refund this order?</DialogTitle>
+                <DialogContent>
+                    {refundTarget && (
+                        <>
+                            <Typography sx={{ mb: 2 }}>
+                                {refundTarget.orderNumber}: the full amount of <Money value={refundTarget.total} /> goes back to the shopper through Razorpay,
+                                and the items return to stock. This cannot be undone.
+                            </Typography>
+                            {refundTarget.exitedAt && (
+                                <Alert severity="warning" sx={{ mb: 2 }}>
+                                    This shopper has already left the shop with these items.
+                                </Alert>
+                            )}
+                            <TextField
+                                fullWidth
+                                size="small"
+                                label="Reason (optional)"
+                                value={refundReason}
+                                onChange={(event) => setRefundReason(event.target.value)}
+                                inputProps={{ maxLength: 200 }}
+                            />
+                        </>
+                    )}
+                </DialogContent>
+                <DialogActions sx={{ px: 3, pb: 2 }}>
+                    <Button onClick={() => setRefundTarget(null)} disabled={refunding}>Cancel</Button>
+                    <Button variant="contained" color="error" onClick={refund} disabled={refunding}>
+                        {refunding ? "Refunding..." : "Refund in full"}
+                    </Button>
+                </DialogActions>
+            </Sheet>
 
             <Toast toast={toast} onClose={() => setToast(null)} />
         </Box>

@@ -1,6 +1,6 @@
 import { useState, useCallback, lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
-import { Box, Typography, Button, TextField, CircularProgress } from "@mui/material";
+import { Box, Typography, Button, TextField, CircularProgress, Checkbox, FormControlLabel } from "@mui/material";
 import { QrCodeScanner } from "@mui/icons-material";
 import { useAuth } from "../context/AuthContext";
 import TopBar from "../components/ui/TopBar";
@@ -18,6 +18,7 @@ const VERDICTS = {
     ALREADY_EXITED: { label: "ALREADY USED", hint: "This receipt was already used to leave the store.", ...tokens.warning },
     NOT_PAID: { label: "NOT PAID", hint: "Do not let the shopper leave. Send them back to pay.", ...tokens.danger },
     CANCELLED: { label: "CANCELLED", hint: "This order was cancelled and is not valid.", ...tokens.danger },
+    REFUNDED: { label: "REFUNDED", hint: "The money was returned. Do not let the shopper leave with these items.", ...tokens.danger },
     NOT_FOUND: { label: "NOT FOUND", hint: "No order matches this code.", ...tokens.danger },
     ERROR: { label: "ERROR", hint: "Something went wrong. Try again.", ...tokens.danger }
 };
@@ -33,6 +34,8 @@ const VerifyExitPage = () => {
     const [loading, setLoading] = useState(false);
     const [confirming, setConfirming] = useState(false);
     const [scannerOpen, setScannerOpen] = useState(false);
+    // Set when the shopper's bag was picked for a random check; staff must tick before Confirm exit
+    const [bagTicked, setBagTicked] = useState(false);
 
     const authHeaders = useCallback(() => ({
         "Content-Type": "application/json",
@@ -46,6 +49,7 @@ const VerifyExitPage = () => {
         setCode(orderNumber);
         setLoading(true);
         setVerdict(null);
+        setBagTicked(false);
 
         try {
             const response = await fetch(`${API_URL}/verify/${encodeURIComponent(orderNumber)}`, {
@@ -58,7 +62,7 @@ const VerifyExitPage = () => {
             } else if (!response.ok) {
                 throw new Error(data.message || "Could not verify this receipt");
             } else {
-                setVerdict({ result: data.result, order: data.data });
+                setVerdict({ result: data.result, order: data.data, bagCheckRequired: data.bagCheckRequired === true });
             }
         } catch (error) {
             setVerdict({ result: "ERROR", message: error.message });
@@ -78,12 +82,16 @@ const VerifyExitPage = () => {
         try {
             const response = await fetch(`${API_URL}/verify/${encodeURIComponent(verdict.order.orderNumber)}/exit`, {
                 method: "POST",
-                headers: authHeaders()
+                headers: authHeaders(),
+                body: JSON.stringify({ bagChecked: verdict.bagCheckRequired === true && bagTicked })
             });
             const data = await response.json();
 
             if (response.ok) {
                 setVerdict({ result: "EXIT_CONFIRMED", order: verdict.order });
+            } else if (data.result === "BAG_CHECK_REQUIRED") {
+                // Stay on the receipt: staff just need to look in the bag and tick the box
+                setVerdict({ ...verdict, bagCheckRequired: true, message: data.message });
             } else {
                 setVerdict({ result: data.result || "ERROR", order: verdict.order, message: data.message });
             }
@@ -97,6 +105,7 @@ const VerifyExitPage = () => {
     const reset = () => {
         setVerdict(null);
         setCode("");
+        setBagTicked(false);
     };
 
     if (!canVerify) {
@@ -179,6 +188,26 @@ const VerifyExitPage = () => {
                             )}
                         </Box>
 
+                        {/* Picked for a random bag check: staff must look in the bag and tick before confirming */}
+                        {verdict.result === "PAID" && verdict.bagCheckRequired && (
+                            <Box
+                                role="alert"
+                                sx={{ mt: 2, p: 2, borderRadius: "10px", border: 2, borderColor: tokens.warning.fg, backgroundColor: tokens.warning.bg, color: tokens.warning.fg }}
+                            >
+                                <Typography component="h3" sx={{ fontFamily: fonts.serif, fontWeight: 700, fontSize: "1.6rem", lineHeight: 1.1 }}>
+                                    CHECK BAG
+                                </Typography>
+                                <Typography sx={{ mt: 0.5, fontWeight: 600 }}>
+                                    This bag was picked for a check. Compare it with the list below.
+                                </Typography>
+                                <FormControlLabel
+                                    sx={{ mt: 1, ml: 0, alignItems: "flex-start" }}
+                                    control={<Checkbox checked={bagTicked} onChange={(event) => setBagTicked(event.target.checked)} sx={{ py: 0.5 }} />}
+                                    label="I have checked the bag against this list"
+                                />
+                            </Box>
+                        )}
+
                         {order && (
                             <Box sx={{ mt: 3 }}>
                                 {/* 2. How many items, then the list, so staff can compare with the bag */}
@@ -213,7 +242,7 @@ const VerifyExitPage = () => {
                                         fullWidth
                                         size="large"
                                         onClick={confirmExit}
-                                        disabled={confirming}
+                                        disabled={confirming || (verdict.bagCheckRequired && !bagTicked)}
                                         sx={{ mt: 1 }}
                                     >
                                         {confirming ? "Confirming..." : "Confirm exit"}
