@@ -4,6 +4,44 @@ import Setting from '../models/Setting.js';
 import { priceBasket, taxFor } from '../utils/pricing.js';
 import { expireStaleOrders } from '../utils/orderExpiry.js';
 
+// ---- Random bag check (R-10) ----
+export const DEFAULT_BAG_CHECK_PERCENT = 10;
+
+export const getBagCheckPercent = async () => {
+  const setting = await Setting.findOne({ key: 'bagCheckPercent' }).lean();
+  const value = Number(setting?.value);
+  return Number.isFinite(value) && value >= 0 && value <= 100 ? value : DEFAULT_BAG_CHECK_PERCENT;
+};
+
+// Decide once, per order, whether it gets a bag check. The answer is saved so looking at the same receipt
+// again (or another staff member looking) never re-rolls it. Only paid orders that have not yet left get one.
+const ensureBagCheckFlag = async (order) => {
+  if (!order || order.bagCheckRequired !== undefined) return order;
+  if (order.paymentStatus !== 'paid' || order.exitedAt || order.status === 'cancelled') return order;
+
+  const percent = await getBagCheckPercent();
+  const required = Math.random() * 100 < percent;
+  const saved = await Order.findOneAndUpdate(
+    { _id: order._id, bagCheckRequired: { $exists: false } },
+    { $set: { bagCheckRequired: required } },
+    { new: true }
+  ).select('bagCheckRequired').lean();
+
+  // Another request decided first: use its answer
+  const finalValue = saved ? saved.bagCheckRequired : (await Order.findById(order._id).select('bagCheckRequired').lean()).bagCheckRequired;
+  return { ...order, bagCheckRequired: finalValue };
+};
+
+export const getBagCheckSetting = async (req, res) => {
+  res.json({ success: true, data: { percent: await getBagCheckPercent() } });
+};
+
+export const updateBagCheckSetting = async (req, res) => {
+  const { percent } = req.body;
+  await Setting.updateOne({ key: 'bagCheckPercent' }, { $set: { value: percent } }, { upsert: true });
+  res.json({ success: true, message: `Bag check set to ${percent} percent`, data: { percent } });
+};
+
 // Create a new order. It starts as pending/unpaid; payment is handled in paymentController.
 // The client sends only barcodes and quantities: every price comes from the database.
 export const createOrder = async (req, res) => {
@@ -157,7 +195,9 @@ export const getOrderById = async (req, res) => {
     const { orderId } = req.params;
     const userId = req.user._id; // Set by middleware for both regular and demo users
 
+    // Staff-only fields (the bag-check decision, who let them out) are never sent to the shopper
     const order = await Order.findOne({ _id: orderId, userId })
+      .select('-bagCheckRequired -bagChecked -exitedBy -exitedByName -refundRequestedAt')
       .populate('items.productId', 'name price category description');
 
     if (!order) {
@@ -194,8 +234,8 @@ export const updateOrderStatus = async (req, res) => {
       });
     }
 
-    // A paid order is never edited by hand; refunds will have their own flow
-    if (order.paymentStatus === 'paid') {
+    // A paid or refunded order is never edited by hand; refunds have their own flow
+    if (order.paymentStatus === 'paid' || order.paymentStatus === 'refunded') {
       return res.status(400).json({
         success: false,
         message: 'A paid order cannot be changed here'
@@ -242,7 +282,7 @@ export const cancelOrder = async (req, res) => {
       });
     }
 
-    if (order.paymentStatus === 'paid') {
+    if (order.paymentStatus === 'paid' || order.paymentStatus === 'refunded') {
       return res.status(400).json({
         success: false,
         message: 'Paid orders cannot be cancelled'
@@ -277,7 +317,7 @@ export const getAllOrders = async (req, res) => {
     if (paymentStatus) query.paymentStatus = paymentStatus;
 
     const orders = await Order.find(query)
-      .select('orderNumber total status paymentStatus razorpayOrderId userPhone userName items createdAt paidAt exitedAt')
+      .select('orderNumber total status paymentStatus razorpayOrderId userPhone userName items createdAt paidAt exitedAt exitedByName bagCheckRequired bagChecked refundedAt refundReason')
       .populate('userId', 'name phoneNumber')
       .populate('items.productId', 'name price category')
       .sort({ createdAt: -1 })
@@ -313,8 +353,8 @@ export const verifyReceipt = async (req, res) => {
   try {
     const orderNumber = String(req.params.orderNumber || '').trim().toUpperCase();
 
-    const order = await Order.findOne({ orderNumber })
-      .select('orderNumber items subtotal tax total status paymentStatus paidAt exitedAt createdAt userName')
+    let order = await Order.findOne({ orderNumber })
+      .select('orderNumber items subtotal tax total status paymentStatus paidAt exitedAt exitedByName bagCheckRequired bagChecked createdAt userName')
       .lean();
 
     if (!order) {
@@ -326,17 +366,23 @@ export const verifyReceipt = async (req, res) => {
     }
 
     let result = 'PAID';
-    if (order.status === 'cancelled') {
+    if (order.paymentStatus === 'refunded') {
+      result = 'REFUNDED';
+    } else if (order.status === 'cancelled') {
       result = 'CANCELLED';
     } else if (order.paymentStatus !== 'paid') {
       result = 'NOT_PAID';
     } else if (order.exitedAt) {
       result = 'ALREADY_EXITED';
+    } else {
+      order = await ensureBagCheckFlag(order);
     }
 
     res.json({
       success: true,
       result,
+      // true means staff must look in the bag before confirming the exit
+      bagCheckRequired: result === 'PAID' && order.bagCheckRequired === true,
       data: order
     });
   } catch (error) {
@@ -353,17 +399,33 @@ export const confirmExit = async (req, res) => {
   try {
     const orderNumber = String(req.params.orderNumber || '').trim().toUpperCase();
 
-    // Atomic: only a paid, not cancelled, not yet exited order can be marked
+    // Staff tick a box on the screen to say they looked in the bag
+    const bagChecked = req.body?.bagChecked === true;
+
+    // Make sure the bag-check decision exists even if staff confirm without opening the receipt first
+    const current = await Order.findOne({ orderNumber }).select('paymentStatus status exitedAt bagCheckRequired').lean();
+    await ensureBagCheckFlag(current);
+
+    // Atomic: only a paid, not cancelled, not yet exited order can be marked.
+    // An order picked for a bag check needs the tick.
     const order = await Order.findOneAndUpdate(
       {
         orderNumber,
         paymentStatus: 'paid',
         status: { $ne: 'cancelled' },
-        exitedAt: null
+        exitedAt: null,
+        ...(bagChecked ? {} : { bagCheckRequired: { $ne: true } })
       },
-      { $set: { exitedAt: new Date(), exitedBy: req.user._id } },
+      {
+        $set: {
+          exitedAt: new Date(),
+          exitedBy: req.user._id,
+          exitedByName: req.user.name || req.user.phoneNumber,
+          bagChecked
+        }
+      },
       { new: true }
-    ).select('orderNumber total exitedAt').lean();
+    ).select('orderNumber total exitedAt exitedByName bagChecked').lean();
 
     if (order) {
       return res.json({
@@ -375,17 +437,23 @@ export const confirmExit = async (req, res) => {
 
     // Not updated: work out why so staff get a clear message
     const existing = await Order.findOne({ orderNumber })
-      .select('paymentStatus status exitedAt')
+      .select('paymentStatus status exitedAt bagCheckRequired')
       .lean();
 
     if (!existing) {
       return res.status(404).json({ success: false, result: 'NOT_FOUND', message: 'No order matches this receipt' });
+    }
+    if (existing.paymentStatus === 'refunded') {
+      return res.status(400).json({ success: false, result: 'REFUNDED', message: 'This order was refunded' });
     }
     if (existing.exitedAt) {
       return res.status(409).json({ success: false, result: 'ALREADY_EXITED', message: 'This receipt was already used to exit' });
     }
     if (existing.status === 'cancelled') {
       return res.status(400).json({ success: false, result: 'CANCELLED', message: 'This order was cancelled' });
+    }
+    if (existing.paymentStatus === 'paid' && existing.bagCheckRequired === true && !bagChecked) {
+      return res.status(400).json({ success: false, result: 'BAG_CHECK_REQUIRED', message: 'This bag was picked for a check. Look in the bag, then tick the box.' });
     }
     return res.status(400).json({ success: false, result: 'NOT_PAID', message: 'This order has not been paid' });
   } catch (error) {
@@ -408,6 +476,7 @@ export const getOrderStats = async (req, res) => {
     const lastWebhook = await Setting.findOne({ key: 'lastWebhookAt' }).lean();
     const completedOrders = await Order.countDocuments({ status: 'completed' });
     const cancelledOrders = await Order.countDocuments({ status: 'cancelled' });
+    const refundedOrders = await Order.countDocuments({ paymentStatus: 'refunded' });
 
     const totalRevenue = await Order.aggregate([
       { $match: { paymentStatus: 'paid' } },
@@ -429,6 +498,7 @@ export const getOrderStats = async (req, res) => {
           expiredOrders,
           completedOrders,
           cancelledOrders,
+          refundedOrders,
           totalRevenue: totalRevenue[0]?.total || 0
         },
         recentOrders,

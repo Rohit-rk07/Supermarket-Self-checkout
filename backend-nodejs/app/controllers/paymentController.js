@@ -98,7 +98,8 @@ const markOrderPaid = async (filter, { paymentId, signature }) => {
   if (signature) update.razorpaySignature = signature;
 
   const updated = await Order.findOneAndUpdate(
-    { ...filter, paymentStatus: { $ne: 'paid' } },
+    // A refunded order never turns back into a paid one, even if a late payment message arrives
+    { ...filter, paymentStatus: { $nin: ['paid', 'refunded'] } },
     { $set: update },
     { new: true }
   );
@@ -141,6 +142,10 @@ export const createOrder = async (req, res, next) => {
 
     if (order.paymentStatus === 'paid') {
       return res.status(400).json({ success: false, message: 'Order is already paid' });
+    }
+
+    if (order.paymentStatus === 'refunded') {
+      return res.status(400).json({ success: false, message: 'This order was refunded' });
     }
 
     if (order.status === 'cancelled') {
@@ -226,10 +231,14 @@ export const verifyPayment = async (req, res, next) => {
       });
     }
 
+    // Staff-only fields (the bag-check decision, who let them out) are never sent to the shopper
+    const data = order.toObject();
+    for (const field of ['bagCheckRequired', 'bagChecked', 'exitedBy', 'exitedByName', 'refundRequestedAt']) delete data[field];
+
     res.json({
       status: "success",
       message: "Payment verified successfully",
-      data: order
+      data
     });
   } catch (error) {
     logger.error('Error verifying payment signature', { error });
@@ -295,6 +304,9 @@ export const reconcileOrder = async (req, res, next) => {
     if (order.paymentStatus === 'paid') {
       return res.json({ success: true, result: 'ALREADY_PAID', message: 'This order is already paid', data: order });
     }
+    if (order.paymentStatus === 'refunded') {
+      return res.status(400).json({ success: false, message: 'This order was refunded' });
+    }
     if (!order.razorpayOrderId) {
       return res.status(400).json({ success: false, message: 'No payment was ever started for this order' });
     }
@@ -330,6 +342,104 @@ export const reconcileOrder = async (req, res, next) => {
     res.json({ success: true, result: 'MARKED_PAID', message: 'Payment found. The order is now paid.', data: paidOrder });
   } catch (error) {
     logger.error('Error reconciling order', { error });
+    next(error);
+  }
+};
+
+// Admin: refund a paid order in full through Razorpay (R-23).
+// The order becomes refunded, and stock comes back for products the shop tracks.
+export const refundOrder = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    const reason = String(req.body?.reason || '').trim();
+
+    if (!mongoose.isValidObjectId(orderId)) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+    if (order.paymentStatus === 'refunded') {
+      return res.status(400).json({ success: false, message: 'This order was already refunded' });
+    }
+    if (order.paymentStatus !== 'paid') {
+      return res.status(400).json({ success: false, message: 'Only a paid order can be refunded' });
+    }
+    if (!order.razorpayPaymentId) {
+      return res.status(400).json({ success: false, message: 'No Razorpay payment is recorded for this order, so it cannot be refunded here' });
+    }
+    if (!hasValidCredentials()) {
+      return res.status(500).json({ success: false, message: 'Payment service not configured' });
+    }
+
+    // Claim the refund so two admins pressing the button together cannot refund twice
+    const claimed = await Order.findOneAndUpdate(
+      { _id: order._id, paymentStatus: 'paid', refundRequestedAt: { $exists: false } },
+      { $set: { refundRequestedAt: new Date() } },
+      { new: true }
+    );
+    if (!claimed) {
+      return res.status(409).json({ success: false, message: 'A refund for this order is already in progress' });
+    }
+
+    let refund;
+    try {
+      const razorpay = getRazorpayClient();
+      refund = await razorpay.payments.refund(order.razorpayPaymentId, {
+        amount: Math.round(order.total * 100),
+        speed: 'normal',
+        notes: { orderNumber: order.orderNumber, ...(reason ? { reason } : {}) }
+      });
+    } catch (razorpayError) {
+      // Nothing was refunded: release the claim so the admin can try again
+      await Order.updateOne({ _id: order._id }, { $unset: { refundRequestedAt: 1 } });
+      logger.error('Razorpay refund failed', { orderNumber: order.orderNumber, error: razorpayError?.error?.description || razorpayError.message });
+      return res.status(502).json({
+        success: false,
+        message: razorpayError?.error?.description || 'Razorpay could not make the refund. Nothing was changed. Try again shortly.'
+      });
+    }
+
+    try {
+      const refunded = await Order.findOneAndUpdate(
+        { _id: order._id },
+        {
+          $set: {
+            paymentStatus: 'refunded',
+            status: 'refunded',
+            refundId: refund?.id,
+            refundedAt: new Date(),
+            refundedBy: req.user._id,
+            refundReason: reason || undefined
+          }
+        },
+        { new: true }
+      );
+
+      // Put the items back on the shelf (only products the shop tracks)
+      const restock = (order.items || [])
+        .filter((item) => item.productId)
+        .map((item) => ({
+          updateOne: {
+            filter: { _id: item.productId, trackStock: true },
+            update: { $inc: { stock: item.quantity || 1 } }
+          }
+        }));
+      if (restock.length > 0) await Product.bulkWrite(restock);
+
+      logger.info('Order refunded', { orderNumber: order.orderNumber, refundId: refund?.id });
+      res.json({ success: true, message: 'Refund made. The order is now refunded.', data: refunded });
+    } catch (saveError) {
+      // Money has moved at Razorpay but our record did not update: say so loudly
+      logger.error('Refund made at Razorpay but the order could not be updated', { orderNumber: order.orderNumber, refundId: refund?.id, error: saveError.message });
+      res.status(500).json({
+        success: false,
+        message: `The refund was made at Razorpay (refund id ${refund?.id}) but the order could not be updated. Do not refund again; contact the developer.`
+      });
+    }
+  } catch (error) {
+    logger.error('Error refunding order', { error });
     next(error);
   }
 };

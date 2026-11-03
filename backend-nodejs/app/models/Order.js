@@ -90,6 +90,16 @@ const orderSchema = new mongoose.Schema({
   paidAt: Date,
   exitedAt: Date, // set when staff confirm the shopper may leave (receipt can only be used once)
   exitedBy: mongoose.Schema.Types.Mixed,
+  exitedByName: String, // who confirmed the exit, kept as text so the history survives even if the account changes
+  // Random bag check (R-10). Decided once, the first time staff look at a paid receipt, and never shown to the shopper
+  bagCheckRequired: Boolean,
+  bagChecked: Boolean, // staff ticked that they checked the bag when confirming the exit
+  // Refund (R-23)
+  refundRequestedAt: Date, // set while a refund is being made, so two admins cannot refund twice
+  refundId: String,
+  refundedAt: Date,
+  refundedBy: mongoose.Schema.Types.Mixed,
+  refundReason: String,
   orderNumber: {
     type: String,
     unique: true,

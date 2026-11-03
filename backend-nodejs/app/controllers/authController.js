@@ -69,6 +69,14 @@ export const sendPhoneOTP = async (req, res) => {
     // Check if user exists
     let user = await User.findOne({ phoneNumber });
     const isNewUser = !user;
+
+    // A deactivated account gets no code (and the shop pays for no text message)
+    if (user && user.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'This account has been deactivated. Please ask the shop manager.'
+      });
+    }
     
     if (!user) {
       // Create temporary user entry for OTP verification
@@ -183,6 +191,13 @@ export const verifyPhoneOTP = async (req, res) => {
       });
     }
     
+    if (user.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'This account has been deactivated. Please ask the shop manager.'
+      });
+    }
+
     // Verify OTP
     if (!user.verifyOTP(otp)) {
       logger.authLog('OTP_VERIFY_FAILED', user._id, { phoneNumber, reason: 'invalid_otp' });

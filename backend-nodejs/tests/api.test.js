@@ -357,6 +357,8 @@ describe('the admin-only status route', () => {
 
 describe('exit verification', () => {
   const setup = async () => {
+    // These tests are about the receipt rules, so switch the random bag check off (it has its own tests)
+    await Setting.updateOne({ key: 'bagCheckPercent' }, { $set: { value: 0 } }, { upsert: true });
     const customer = await makeUser();
     const staff = await makeUser('staff');
     const product = await makeProduct();

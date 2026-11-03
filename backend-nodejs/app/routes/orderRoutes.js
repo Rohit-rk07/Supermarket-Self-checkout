@@ -8,9 +8,11 @@ import {
   getAllOrders,
   getOrderStats,
   verifyReceipt,
-  confirmExit
+  confirmExit,
+  getBagCheckSetting,
+  updateBagCheckSetting
 } from '../controllers/orderController.js';
-import { reconcileOrder } from '../controllers/paymentController.js';
+import { reconcileOrder, refundOrder } from '../controllers/paymentController.js';
 import { authenticateJWT, authorize } from '../middleware/auth.js';
 import { validateRequest } from '../middleware/validation.js';
 import Joi from 'joi';
@@ -34,6 +36,14 @@ const updateOrderStatusSchema = Joi.object({
   status: Joi.string().valid('pending', 'processing', 'cancelled', 'expired').required()
 });
 
+const bagCheckSettingSchema = Joi.object({
+  percent: Joi.number().integer().min(0).max(100).required()
+});
+
+const refundSchema = Joi.object({
+  reason: Joi.string().trim().max(200).allow('').optional()
+});
+
 // Routes
 router.post('/', authenticateJWT, validateRequest(createOrderSchema), createOrder);
 router.get('/my-orders', authenticateJWT, getUserOrders);
@@ -41,11 +51,16 @@ router.get('/my-orders', authenticateJWT, getUserOrders);
 router.get('/verify/:orderNumber', authenticateJWT, authorize('admin', 'staff'), verifyReceipt);
 router.post('/verify/:orderNumber/exit', authenticateJWT, authorize('admin', 'staff'), confirmExit);
 router.get('/stats', authenticateJWT, authorize('admin', 'staff'), getOrderStats);
+// Share of paid orders picked for a bag check at the exit (admin changes it)
+router.get('/settings/bag-check', authenticateJWT, authorize('admin', 'staff'), getBagCheckSetting);
+router.put('/settings/bag-check', authenticateJWT, authorize('admin'), validateRequest(bagCheckSettingSchema), updateBagCheckSetting);
 router.get('/all', authenticateJWT, authorize('admin', 'staff'), getAllOrders);
 router.get('/:orderId', authenticateJWT, getOrderById);
 router.put('/:orderId/status', authenticateJWT, authorize('admin'), validateRequest(updateOrderStatusSchema), updateOrderStatus);
 router.put('/:orderId/cancel', authenticateJWT, cancelOrder);
 // Staff: ask Razorpay whether an unpaid order was actually paid, and mark it paid if so
 router.post('/:orderId/reconcile', authenticateJWT, authorize('admin', 'staff'), reconcileOrder);
+// Admin: refund a paid order in full through Razorpay
+router.post('/:orderId/refund', authenticateJWT, authorize('admin'), validateRequest(refundSchema), refundOrder);
 
 export default router;

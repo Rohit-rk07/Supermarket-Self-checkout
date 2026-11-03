@@ -48,6 +48,44 @@ export const listUsers = async (req, res) => {
   }
 };
 
+// Admin: switch an account off or on (R-43). A deactivated user cannot sign in or use a saved sign-in,
+// but nothing is deleted, so their orders and the exits they confirmed stay in the history.
+export const updateUserActive = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { isActive } = req.body;
+
+    if (!mongoose.isValidObjectId(userId)) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (String(req.user._id) === String(userId)) {
+      return res.status(400).json({ success: false, message: 'You cannot deactivate your own account' });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $set: { isActive } },
+      { new: true }
+    ).select('name phoneNumber role isActive');
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    logger.authLog(isActive ? 'USER_REACTIVATED' : 'USER_DEACTIVATED', req.user._id, { targetUserId: userId });
+
+    res.json({
+      success: true,
+      message: `${user.name || user.phoneNumber} is now ${isActive ? 'active' : 'deactivated'}`,
+      data: user
+    });
+  } catch (error) {
+    logger.error('Update user active error', { error: error.message });
+    res.status(500).json({ success: false, message: 'Failed to update the account' });
+  }
+};
+
 // Admin: change a user's role (customer, staff or admin).
 // An admin cannot change their own role, so the system can never be left without an admin.
 export const updateUserRole = async (req, res) => {
