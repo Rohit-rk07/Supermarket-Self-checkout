@@ -8,6 +8,8 @@ export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    // True when a saved sign-in was refused by the server (expired or revoked), so the login page can say why
+    const [sessionExpired, setSessionExpired] = useState(false);
 
     // The user details saved at login, used only when the server cannot be asked right now
     const readSavedUser = (token) => {
@@ -48,6 +50,7 @@ export const AuthProvider = ({ children }) => {
                         localStorage.removeItem('authToken');
                         localStorage.removeItem('token');
                         setUser(null);
+                        setSessionExpired(true);
                     } else {
                         // The server is busy or rate limiting (429, 5xx). The token may still be fine,
                         // so stay signed in with the details saved at login instead of throwing the shopper out.
@@ -68,6 +71,7 @@ export const AuthProvider = ({ children }) => {
     // Login function for demo and regular users
     const login = async (userData) => {
         try {
+            setSessionExpired(false);
             setUser({
                 ...userData.user,
                 token: userData.token
@@ -146,6 +150,7 @@ export const AuthProvider = ({ children }) => {
             
             // Store token
             localStorage.setItem('token', data.data.token);
+            setSessionExpired(false);
             
             setUser({
                 id: data.data.user._id,
@@ -170,6 +175,7 @@ export const AuthProvider = ({ children }) => {
             localStorage.removeItem('authToken');
             localStorage.removeItem('token');
             setUser(null);
+            setSessionExpired(false);
         } catch (error) {
             console.error("Logout error:", error.message);
             setError("⚠️ Failed to log out. Please try again.");
@@ -246,6 +252,7 @@ export const AuthProvider = ({ children }) => {
         user,
         loading,
         error,
+        sessionExpired,
         sendPhoneOTP,
         verifyPhoneOTP,
         completeRegistration,

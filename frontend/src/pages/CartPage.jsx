@@ -25,11 +25,20 @@ const Stepper = ({ item, onChange }) => {
 };
 
 const CartPage = () => {
-    const { cart, removeFromCart, updateQuantity, clearCart } = useCart();
+    const { cart, cartReady, removeFromCart, updateQuantity, clearCart } = useCart();
     const navigate = useNavigate();
 
     const itemCount = cart.reduce((count, item) => count + (item.quantity || 1), 0);
     const { subtotal, tax, taxIncluded, total } = getBasketTotals(cart);
+
+    // After a reload the saved basket loads a moment later; show nothing rather than "empty" until it has
+    if (!cartReady) {
+        return (
+            <Box sx={{ minHeight: "100vh" }}>
+                <TopBar title="Your basket" backTo="/dashboard" />
+            </Box>
+        );
+    }
 
     if (cart.length === 0) {
         return (

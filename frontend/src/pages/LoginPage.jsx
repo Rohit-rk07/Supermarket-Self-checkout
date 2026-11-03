@@ -28,7 +28,7 @@ const steps = [
 ];
 
 const LoginPage = () => {
-  const { sendPhoneOTP, verifyPhoneOTP, completeRegistration, loginAsDemo, error } = useAuth();
+  const { sendPhoneOTP, verifyPhoneOTP, completeRegistration, loginAsDemo, error, sessionExpired } = useAuth();
   const [countryCode, setCountryCode] = useState('+91');
   const [phoneNumber, setPhoneNumber] = useState("");
   const [otp, setOtp] = useState("");
@@ -174,6 +174,12 @@ const LoginPage = () => {
               STEPS[step].intro
             )}
           </Typography>
+
+          {sessionExpired && step === 1 && !error && (
+            <Alert severity="info" sx={{ mb: 3 }}>
+              Your session has ended. Please sign in again.
+            </Alert>
+          )}
 
           {error && (
             <Alert severity="error" sx={{ mb: 3 }}>
