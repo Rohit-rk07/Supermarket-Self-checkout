@@ -95,16 +95,7 @@ const orderSchema = new mongoose.Schema({
     unique: true,
     required: true
   },
-  notes: String,
-  deliveryAddress: {
-    street: String,
-    city: String,
-    state: String,
-    zipCode: String,
-    country: String
-  },
-  estimatedDelivery: Date,
-  actualDelivery: Date
+  notes: String
 }, {
   timestamps: true
 });

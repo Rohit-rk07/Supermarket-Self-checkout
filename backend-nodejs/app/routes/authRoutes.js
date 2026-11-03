@@ -10,6 +10,7 @@ import {
   updateProfile
 } from '../controllers/authController.js';
 import { authenticateJWT } from '../middleware/auth.js';
+import MongoRateLimitStore from '../utils/mongoRateLimitStore.js';
 import { validateRequest } from '../middleware/validation.js';
 import Joi from 'joi';
 
@@ -20,11 +21,14 @@ const otpLimitMessage = {
   message: 'Too many OTP requests. Please try again later.'
 };
 
+// These limits protect against text-message abuse and code guessing, so their counts live in the
+// database (shared by every server instance, and kept across restarts), not in memory.
 const otpIpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  store: new MongoRateLimitStore({ prefix: 'otp-ip:' }),
   message: otpLimitMessage
 });
 
@@ -33,6 +37,7 @@ const otpPhoneLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  store: new MongoRateLimitStore({ prefix: 'otp-phone:' }),
   keyGenerator: (req) => req.body.phoneNumber.trim().toLowerCase(),
   message: otpLimitMessage
 });
@@ -44,7 +49,8 @@ const otpVerifyPhoneLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
-  keyGenerator: (req) => `verify:${req.body.phoneNumber.trim().toLowerCase()}`,
+  store: new MongoRateLimitStore({ prefix: 'otp-verify:' }),
+  keyGenerator: (req) => req.body.phoneNumber.trim().toLowerCase(),
   message: {
     success: false,
     message: 'Too many incorrect attempts. Please request a new OTP in a few minutes.'
@@ -57,6 +63,7 @@ const demoLoginLimiter = rateLimit({
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
+  store: new MongoRateLimitStore({ prefix: 'demo-ip:' }),
   message: {
     success: false,
     message: 'Too many demo sessions from this network. Please try again later.'
