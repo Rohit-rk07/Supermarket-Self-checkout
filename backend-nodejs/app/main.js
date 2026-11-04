@@ -11,6 +11,7 @@ import paymentRoutes from './routes/paymentRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import orderRoutes from './routes/orderRoutes.js';
 import userRoutes from './routes/userRoutes.js';
+import auditRoutes from './routes/auditRoutes.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import logger, { httpLogger } from './utils/logger.js';
 
@@ -80,6 +81,7 @@ app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/orders', orderRoutes);
 app.use('/api/v1/users', userRoutes);
+app.use('/api/v1/audit', auditRoutes);
 
 // Auth routes (matching frontend expectations)
 app.use('/api/auth', authRoutes);

@@ -2,6 +2,7 @@ import Product from '../models/Product.js';
 import { taxFor } from '../utils/pricing.js';
 import { productSchema } from '../middleware/validation.js';
 import logger from '../utils/logger.js';
+import { recordAudit } from '../utils/audit.js';
 
 // Get product by barcode
 export const getProductByBarcode = async (req, res, next) => {
@@ -80,6 +81,7 @@ export const createProduct = async (req, res, next) => {
     await product.save();
     
     logger.info('Product created', { barcode, name });
+    await recordAudit(req, 'product.create', `Added ${name} (${barcode}) at ${price}`, { type: 'product', id: barcode });
     res.status(201).json({
       success: true,
       message: 'Product created successfully',
@@ -147,6 +149,7 @@ export const updateProduct = async (req, res, next) => {
     const updates = req.body;
     
     logger.dbLog('UPDATE', 'products', { barcode, updates });
+    const before = await Product.findOne({ barcode }).select('price gstRate trackStock').lean();
     const product = await Product.findOneAndUpdate(
       { barcode },
       updates,
@@ -164,6 +167,11 @@ export const updateProduct = async (req, res, next) => {
     }
     
     logger.info('Product updated', { barcode, name: product.name });
+    const changes = [];
+    if (before && updates.price !== undefined && before.price !== product.price) changes.push(`price ${before.price} to ${product.price}`);
+    if (before && updates.gstRate !== undefined && before.gstRate !== product.gstRate) changes.push(`GST ${before.gstRate ?? 'old default'} to ${product.gstRate}%`);
+    await recordAudit(req, changes.length ? 'product.price' : 'product.update',
+      `Edited ${product.name} (${barcode})${changes.length ? `: ${changes.join(', ')}` : ''}`, { type: 'product', id: barcode });
     res.json({
       success: true,
       message: 'Product updated successfully',
@@ -242,6 +250,7 @@ export const importProducts = async (req, res, next) => {
     }
 
     logger.info('Products imported', { created, updated, failed: errors.length });
+    await recordAudit(req, 'product.import', `Imported products: ${created} added, ${updated} updated, ${errors.length} skipped`, { type: 'product' });
     res.json({
       success: true,
       message: `${created} added, ${updated} updated, ${errors.length} skipped`,
@@ -331,6 +340,7 @@ export const deleteProduct = async (req, res, next) => {
     }
     
     logger.info('Product soft deleted', { barcode, name: product.name });
+    await recordAudit(req, 'product.delete', `Deleted ${product.name} (${barcode})`, { type: 'product', id: barcode });
     res.json({
       success: true,
       message: 'Product deleted successfully',

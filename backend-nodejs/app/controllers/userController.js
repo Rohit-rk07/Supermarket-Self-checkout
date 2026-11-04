@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import User from '../models/User.js';
 import logger from '../utils/logger.js';
+import { recordAudit } from '../utils/audit.js';
 
 const ROLES = ['customer', 'staff', 'admin'];
 
@@ -74,6 +75,8 @@ export const updateUserActive = async (req, res) => {
     }
 
     logger.authLog(isActive ? 'USER_REACTIVATED' : 'USER_DEACTIVATED', req.user._id, { targetUserId: userId });
+    await recordAudit(req, isActive ? 'user.reactivate' : 'user.deactivate',
+      `${isActive ? 'Reactivated' : 'Deactivated'} ${user.name || user.phoneNumber} (${user.role})`, { type: 'user', id: userId });
 
     res.json({
       success: true,
@@ -116,6 +119,7 @@ export const updateUserRole = async (req, res) => {
     }
 
     logger.authLog('ROLE_CHANGED', req.user._id, { targetUserId: userId, newRole: role });
+    await recordAudit(req, 'user.role', `Made ${user.name || user.phoneNumber} ${role}`, { type: 'user', id: userId });
 
     res.json({
       success: true,

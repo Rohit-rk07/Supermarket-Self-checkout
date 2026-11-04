@@ -179,11 +179,14 @@ describe('verifying a payment and stock', () => {
     assert.equal(await stockOf(product), 7);
   });
 
-  test('stock never goes below zero when two shoppers buy the last unit', async () => {
+  test('stock never goes below zero even when two shoppers end up paying for the last unit', async () => {
+    // While one shopper is paying, the last unit is held, so a second order is refused (see the stock-hold tests).
+    // The two-payers case can still happen when the first order's 30-minute hold has run out but it is paid late.
     const a = await makeUser();
     const b = await makeUser();
     const product = await makeProduct({ trackStock: true, stock: 1 });
     const orderA = await placeOrder(a.token, [{ barcode: product.barcode, quantity: 1 }]);
+    await makeOrderOld(orderA, 31);
     const orderB = await placeOrder(b.token, [{ barcode: product.barcode, quantity: 1 }]);
     await payOrder(a.token, orderA, 'pay_a');
     await payOrder(b.token, orderB, 'pay_b');

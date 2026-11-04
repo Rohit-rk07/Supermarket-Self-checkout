@@ -2,7 +2,11 @@ import Order from '../models/Order.js';
 import Product from '../models/Product.js';
 import Setting from '../models/Setting.js';
 import { priceBasket, taxFor } from '../utils/pricing.js';
-import { expireStaleOrders } from '../utils/orderExpiry.js';
+import { expireStaleOrders, PENDING_ORDER_MINUTES } from '../utils/orderExpiry.js';
+import { recordAudit } from '../utils/audit.js';
+
+// A tracked product at or below this many units counts as low stock
+export const LOW_STOCK_LEVEL = 5;
 
 // ---- Random bag check (R-10) ----
 export const DEFAULT_BAG_CHECK_PERCENT = 10;
@@ -38,7 +42,9 @@ export const getBagCheckSetting = async (req, res) => {
 
 export const updateBagCheckSetting = async (req, res) => {
   const { percent } = req.body;
+  const previous = await getBagCheckPercent();
   await Setting.updateOne({ key: 'bagCheckPercent' }, { $set: { value: percent } }, { upsert: true });
+  await recordAudit(req, 'setting.bagcheck', `Bag check changed from ${previous}% to ${percent}%`, { type: 'setting', id: 'bagCheckPercent' });
   res.json({ success: true, message: `Bag check set to ${percent} percent`, data: { percent } });
 };
 
@@ -66,6 +72,32 @@ export const createOrder = async (req, res) => {
     const products = await Product.find({ barcode: { $in: barcodes }, isActive: true }).lean();
     const productsByBarcode = new Map(products.map(product => [product.barcode, product]));
 
+    // How many of each barcode this basket asks for in total (the same barcode may appear on two lines)
+    const requested = new Map();
+    for (const item of items) {
+      requested.set(item.barcode, (requested.get(item.barcode) || 0) + (item.quantity || 1));
+    }
+
+    // Units other shoppers are paying for right now are held for them, so the last unit is not sold twice.
+    // An unpaid order holds its stock for PENDING_ORDER_MINUTES, then it lets go on its own.
+    // This shopper's own earlier unpaid orders do not count: a new checkout replaces them.
+    const trackedIds = products.filter((product) => product.trackStock === true).map((product) => product._id);
+    const heldRows = trackedIds.length === 0 ? [] : await Order.aggregate([
+      {
+        $match: {
+          paymentStatus: 'pending',
+          status: 'pending',
+          createdAt: { $gte: new Date(Date.now() - PENDING_ORDER_MINUTES * 60 * 1000) },
+          userId: { $ne: userId },
+          'items.productId': { $in: trackedIds }
+        }
+      },
+      { $unwind: '$items' },
+      { $match: { 'items.productId': { $in: trackedIds } } },
+      { $group: { _id: '$items.productId', quantity: { $sum: '$items.quantity' } } }
+    ]);
+    const held = new Map(heldRows.map((row) => [String(row._id), row.quantity]));
+
     for (const item of items) {
       const product = productsByBarcode.get(item.barcode);
       if (!product) {
@@ -77,13 +109,22 @@ export const createOrder = async (req, res) => {
 
       const quantity = item.quantity || 1;
       // Stock only limits products the shop tracks
-      if (product.trackStock === true && (product.stock ?? 0) < quantity) {
-        return res.status(409).json({
-          success: false,
-          message: (product.stock ?? 0) <= 0
-            ? `${product.name} is out of stock`
-            : `Only ${product.stock} of ${product.name} left`
-        });
+      if (product.trackStock === true) {
+        const onShelf = product.stock ?? 0;
+        const heldByOthers = held.get(String(product._id)) || 0;
+        const available = Math.max(onShelf - heldByOthers, 0);
+
+        if (available < requested.get(item.barcode)) {
+          let message;
+          if (onShelf <= 0) {
+            message = `${product.name} is out of stock`;
+          } else if (available <= 0) {
+            message = `${product.name}: the last ones are being paid for by other shoppers. Try again in a few minutes.`;
+          } else {
+            message = `Only ${available} of ${product.name} left${heldByOthers > 0 ? ' (the rest are being paid for by other shoppers)' : ''}`;
+          }
+          return res.status(409).json({ success: false, message });
+        }
       }
 
       const subtotal = Math.round(product.price * quantity * 100) / 100;
@@ -242,9 +283,11 @@ export const updateOrderStatus = async (req, res) => {
       });
     }
 
+    const previousStatus = order.status;
     order.status = status;
 
     await order.save();
+    await recordAudit(req, 'order.status', `Order ${order.orderNumber} moved from ${previousStatus} to ${status}`, { type: 'order', id: order._id });
 
     res.json({
       success: true,
@@ -483,6 +526,25 @@ export const getOrderStats = async (req, res) => {
       { $group: { _id: null, total: { $sum: '$total' } } }
     ]);
 
+    // "Today" starts when the viewer's day started (the browser sends it, so the shop's own timezone is used)
+    const sinceParam = new Date(String(req.query.since || ''));
+    const sinceValid = !Number.isNaN(sinceParam.getTime()) && Date.now() - sinceParam.getTime() < 48 * 60 * 60 * 1000;
+    const since = sinceValid ? sinceParam : new Date(new Date().setHours(0, 0, 0, 0));
+
+    const [salesToday, awaitingExit, exitedToday, refundedToday, lowStock] = await Promise.all([
+      Order.aggregate([
+        { $match: { paymentStatus: 'paid', paidAt: { $gte: since } } },
+        { $group: { _id: null, total: { $sum: '$total' }, count: { $sum: 1 } } }
+      ]),
+      Order.countDocuments({ paymentStatus: 'paid', exitedAt: { $exists: false }, status: { $ne: 'cancelled' } }),
+      Order.countDocuments({ exitedAt: { $gte: since } }),
+      Order.aggregate([
+        { $match: { paymentStatus: 'refunded', refundedAt: { $gte: since } } },
+        { $group: { _id: null, total: { $sum: '$total' }, count: { $sum: 1 } } }
+      ]),
+      Product.countDocuments({ isActive: true, trackStock: true, stock: { $lte: LOW_STOCK_LEVEL } })
+    ]);
+
     const recentOrders = await Order.find()
       .select('orderNumber total status userPhone userName createdAt')
       .populate('userId', 'name phoneNumber')
@@ -500,6 +562,16 @@ export const getOrderStats = async (req, res) => {
           cancelledOrders,
           refundedOrders,
           totalRevenue: totalRevenue[0]?.total || 0
+        },
+        today: {
+          since,
+          sales: salesToday[0]?.total || 0,
+          paidOrders: salesToday[0]?.count || 0,
+          awaitingExit,
+          exited: exitedToday,
+          refunds: refundedToday[0]?.count || 0,
+          refundedAmount: refundedToday[0]?.total || 0,
+          lowStock
         },
         recentOrders,
         payments: {

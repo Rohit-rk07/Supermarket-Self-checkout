@@ -6,6 +6,7 @@ import Order from '../models/Order.js';
 import Product from '../models/Product.js';
 import Setting from '../models/Setting.js';
 import { PENDING_ORDER_MINUTES } from '../utils/orderExpiry.js';
+import { recordAudit } from '../utils/audit.js';
 
 // NOTE: Do NOT initialize Razorpay at module load time, because dotenv may not
 // be configured yet when this file is imported. Instead, create the client
@@ -429,6 +430,7 @@ export const refundOrder = async (req, res, next) => {
       if (restock.length > 0) await Product.bulkWrite(restock);
 
       logger.info('Order refunded', { orderNumber: order.orderNumber, refundId: refund?.id });
+      await recordAudit(req, 'order.refund', `Refunded ${order.orderNumber} (${order.total})${reason ? `: ${reason}` : ''}`, { type: 'order', id: order._id });
       res.json({ success: true, message: 'Refund made. The order is now refunded.', data: refunded });
     } catch (saveError) {
       // Money has moved at Razorpay but our record did not update: say so loudly
