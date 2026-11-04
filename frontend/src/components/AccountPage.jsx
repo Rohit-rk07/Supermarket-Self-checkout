@@ -30,12 +30,44 @@ const ProfileRow = ({ label, value }) => (
     </Box>
 );
 
+// One order in a list. Paid orders can be opened as a receipt; unfinished ones cannot.
+const OrderRow = ({ order, onView }) => {
+    const totals = getTotals(order);
+    const count = (order.items || []).reduce((n, item) => n + (item.quantity || 1), 0);
+    const isReceipt = order.paymentStatus === "paid" || order.paymentStatus === "refunded";
+    return (
+        <Box sx={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 2, py: 2.25, borderTop: 1, borderColor: "divider" }}>
+            <Box sx={{ minWidth: 0 }}>
+                <Typography fontWeight={600} sx={{ wordBreak: "break-all" }}>
+                    {order.orderNumber || order._id.slice(-6).toUpperCase()}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: isReceipt ? 1.25 : 0 }}>
+                    {formatDateTime(order.paidAt || order.createdAt)} · {count} {count === 1 ? "item" : "items"}
+                </Typography>
+                {isReceipt && (
+                    <Button variant="outlined" size="small" onClick={() => onView(order)}>
+                        View receipt
+                    </Button>
+                )}
+            </Box>
+            <Box sx={{ textAlign: "right" }}>
+                <Money value={totals.total} sx={{ display: "block", fontWeight: 700, fontSize: "1.0625rem", mb: 0.75 }} />
+                <StatusChip order={order} />
+            </Box>
+        </Box>
+    );
+};
+
 const AccountPage = () => {
     const { user, logout } = useAuth();
     const { orders, loading, error } = useOrders();
     const navigate = useNavigate();
     const [tab, setTab] = useState("receipts");
     const [selected, setSelected] = useState(null);
+
+    // Only paid (or refunded) orders are receipts. Orders that were never paid, expired or cancelled are listed apart.
+    const receipts = orders.filter((order) => order.paymentStatus === "paid" || order.paymentStatus === "refunded");
+    const unfinished = orders.filter((order) => !(order.paymentStatus === "paid" || order.paymentStatus === "refunded"));
 
     const handleLogout = () => {
         logout();
@@ -63,6 +95,7 @@ const AccountPage = () => {
                     sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}
                 >
                     <Tab value="receipts" label="Receipts" />
+                    {unfinished.length > 0 && <Tab value="unfinished" label={`Unfinished (${unfinished.length})`} />}
                     <Tab value="profile" label="Profile" />
                 </Tabs>
 
@@ -74,7 +107,7 @@ const AccountPage = () => {
                             </Box>
                         ) : error ? (
                             <Alert severity="error">{error}</Alert>
-                        ) : orders.length === 0 ? (
+                        ) : receipts.length === 0 ? (
                             <Box sx={{ textAlign: "center", py: 8 }}>
                                 <Typography component="h3" variant="h4" sx={{ mb: 1 }}>No receipts yet</Typography>
                                 <Typography color="text.secondary" sx={{ mb: 3 }}>
@@ -83,34 +116,19 @@ const AccountPage = () => {
                                 <Button variant="contained" onClick={() => navigate("/dashboard")}>Start shopping</Button>
                             </Box>
                         ) : (
-                            orders.map((order) => {
-                                const totals = getTotals(order);
-                                const count = (order.items || []).reduce((n, item) => n + (item.quantity || 1), 0);
-                                return (
-                                    <Box
-                                        key={order._id}
-                                        sx={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 2, py: 2.25, borderTop: 1, borderColor: "divider" }}
-                                    >
-                                        <Box sx={{ minWidth: 0 }}>
-                                            <Typography fontWeight={600} sx={{ wordBreak: "break-all" }}>
-                                                {order.orderNumber || order._id.slice(-6).toUpperCase()}
-                                            </Typography>
-                                            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
-                                                {formatDateTime(order.paidAt || order.createdAt)} · {count} {count === 1 ? "item" : "items"}
-                                            </Typography>
-                                            <Button variant="outlined" size="small" onClick={() => setSelected(order)}>
-                                                View receipt
-                                            </Button>
-                                        </Box>
-                                        <Box sx={{ textAlign: "right" }}>
-                                            <Money value={totals.total} sx={{ display: "block", fontWeight: 700, fontSize: "1.0625rem", mb: 0.75 }} />
-                                            <StatusChip order={order} />
-                                        </Box>
-                                    </Box>
-                                );
-                            })
+                            receipts.map((order) => <OrderRow key={order._id} order={order} onView={setSelected} />)
                         )}
-                        {orders.length > 0 && <Box sx={{ borderTop: 1, borderColor: "divider" }} />}
+                        {receipts.length > 0 && <Box sx={{ borderTop: 1, borderColor: "divider" }} />}
+                    </Box>
+                )}
+
+                {tab === "unfinished" && (
+                    <Box>
+                        <Typography color="text.secondary" sx={{ mb: 2 }}>
+                            These baskets were never paid for, so there is no receipt. To buy the items, scan them again and pay.
+                        </Typography>
+                        {unfinished.map((order) => <OrderRow key={order._id} order={order} onView={setSelected} />)}
+                        <Box sx={{ borderTop: 1, borderColor: "divider" }} />
                     </Box>
                 )}
 
@@ -120,7 +138,7 @@ const AccountPage = () => {
                         <ProfileRow label="Phone number" value={user?.phoneNumber} />
                         <ProfileRow label="Email" value={user?.email} />
                         <ProfileRow label="Account type" value={ROLE_LABELS[user?.role] || "Shopper"} />
-                        <ProfileRow label="Receipts" value={String(orders.length)} />
+                        <ProfileRow label="Receipts" value={String(receipts.length)} />
                         <Box sx={{ borderTop: 1, borderColor: "divider", pt: 3 }}>
                             <Button variant="outlined" color="error" onClick={handleLogout}>
                                 Log out
