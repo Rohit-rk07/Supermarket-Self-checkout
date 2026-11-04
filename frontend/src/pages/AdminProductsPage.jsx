@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
     Box,
     Typography,
@@ -23,6 +23,7 @@ import Money from "../components/ui/Money";
 import Toast from "../components/ui/Toast";
 import Sheet from "../components/ui/Sheet";
 import ResponsiveRows from "../components/ui/ResponsiveRows";
+import InlineNumber from "../components/ui/InlineNumber";
 
 const API_URL = `${import.meta.env.VITE_SERVER_URL}/api/v1/products`;
 const EMPTY_FORM = { barcode: "", name: "", price: "", category: "General", stock: "", trackStock: true, gstRate: "5", taxInclusive: true };
@@ -99,13 +100,14 @@ const AdminProductsPage = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
     const isAdmin = user?.role === "admin";
+    const [searchParams] = useSearchParams();
 
     const [products, setProducts] = useState([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(10);
     const [loading, setLoading] = useState(true);
-    const [lowStockOnly, setLowStockOnly] = useState(false);
+    const [lowStockOnly, setLowStockOnly] = useState(searchParams.get("low") === "1");
 
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingBarcode, setEditingBarcode] = useState(null); // null = adding a new product
@@ -232,6 +234,30 @@ const AdminProductsPage = () => {
         } finally {
             setSaving(false);
         }
+    };
+
+    // Change just the price or the stock from the list. The server needs the whole product, so send the rest unchanged.
+    const quickSave = async (product, changes) => {
+        const body = {
+            barcode: product.barcode,
+            name: product.name,
+            price: product.price,
+            category: product.category || "General",
+            stock: product.stock ?? 0,
+            trackStock: product.trackStock === true,
+            gstRate: product.gstRate ?? 18,
+            taxInclusive: product.taxInclusive ?? false,
+            ...changes
+        };
+        const response = await fetch(`${API_URL}/${encodeURIComponent(product.barcode)}`, {
+            method: "PUT",
+            headers: authHeaders(),
+            body: JSON.stringify(body)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(getMessage(data));
+        setProducts((list) => list.map((item) => (item.barcode === product.barcode ? { ...item, ...changes } : item)));
+        notify("Saved");
     };
 
     const handleDelete = async () => {
@@ -367,7 +393,19 @@ const AdminProductsPage = () => {
             label: "GST",
             render: (product) => `${product.gstRate ?? 18}% ${(product.taxInclusive ?? false) ? "included" : "added"}`
         },
-        { label: "Price", align: "right", render: (product) => <Money value={product.price} /> },
+        {
+            label: "Price",
+            align: "right",
+            render: (product) => (
+                <InlineNumber
+                    label={`Price of ${product.name}`}
+                    value={product.price}
+                    max={10000}
+                    display={<Money value={product.price} />}
+                    onSave={(price) => quickSave(product, { price })}
+                />
+            )
+        },
         {
             label: "Stock",
             align: "right",
@@ -376,9 +414,15 @@ const AdminProductsPage = () => {
                 const stock = product.stock ?? 0;
                 const low = stock <= LOW_STOCK_LEVEL;
                 return (
-                    <Typography component="span" sx={{ fontVariantNumeric: "tabular-nums", color: low ? "error.main" : "inherit", fontWeight: low ? 700 : 400 }}>
-                        {stock}{low ? " (low)" : ""}
-                    </Typography>
+                    <Box component="span" sx={{ color: low ? "error.main" : "inherit", fontWeight: low ? 700 : 400 }}>
+                        <InlineNumber
+                            label={`Stock of ${product.name}`}
+                            value={stock}
+                            integer
+                            display={`${stock}${low ? " (low)" : ""}`}
+                            onSave={(next) => quickSave(product, { stock: next })}
+                        />
+                    </Box>
                 );
             }
         },
