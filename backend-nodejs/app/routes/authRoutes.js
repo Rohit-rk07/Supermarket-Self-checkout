@@ -7,7 +7,8 @@ import {
   verifyPhoneOTP,
   completeRegistration,
   getProfile,
-  updateProfile
+  updateProfile,
+  signOutEverywhere
 } from '../controllers/authController.js';
 import { authenticateJWT } from '../middleware/auth.js';
 import MongoRateLimitStore from '../utils/mongoRateLimitStore.js';
@@ -99,6 +100,9 @@ router.post('/phone/verify-otp', validateRequest(verifyOtpSchema), otpVerifyPhon
 router.get('/config', getAuthConfig);
 router.post('/demo-login', demoLoginLimiter, demoLogin);
 router.post('/complete-registration', authenticateJWT, validateRequest(completeRegistrationSchema), completeRegistration);
+
+// Cancel every sign-in of this account, on all devices
+router.post('/logout-all', authenticateJWT, signOutEverywhere);
 
 // User profile routes
 router.get('/profile', authenticateJWT, getProfile);

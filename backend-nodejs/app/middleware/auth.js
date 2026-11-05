@@ -78,6 +78,14 @@ export const authenticateJWT = async (req, res, next) => {
       });
     }
 
+    // "Sign out of all devices" raises the user's tokenVersion; older tokens (which carry the old number) stop working
+    if ((decoded.tv || 0) !== (user.tokenVersion || 0)) {
+      return res.status(401).json({
+        success: false,
+        message: 'You were signed out. Please sign in again.'
+      });
+    }
+
     req.user = user;
     next();
   } catch (error) {
@@ -124,11 +132,13 @@ export const authorize = (...roles) => {
 };
 
 // Generate JWT token
-export const generateJWT = (userId) => {
+// Tokens last a day by default (set JWT_EXPIRES_IN to change it). `tokenVersion` ties the token to the
+// user's current sign-in generation so "sign out of all devices" can cancel every older token.
+export const generateJWT = (userId, tokenVersion = 0) => {
   return jwt.sign(
-    { userId }, 
+    { userId, tv: tokenVersion },
     process.env.JWT_SECRET, 
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
   );
 };
 
@@ -150,7 +160,7 @@ export const optionalAuth = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.userId);
     
-    if (user && user.isActive) {
+    if (user && user.isActive && (decoded.tv || 0) === (user.tokenVersion || 0)) {
       req.user = user;
     }
     

@@ -6,6 +6,7 @@ import {
   Group,
   History,
   Tune,
+  BarChart,
   ShoppingBasket,
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
@@ -113,6 +114,7 @@ const AdminHome = ({ onShop }) => {
         <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1.5, mb: 4 }}>
           <ToolCard icon={<QrCodeScanner />} title="Verify a receipt" description="Check a shopper's QR code at the exit" onClick={() => navigate("/staff/verify")} />
           <ToolCard icon={<ReceiptLong />} title="All orders" description="Sales, payments, exits and refunds" onClick={() => navigate("/staff/orders")} />
+          <ToolCard icon={<BarChart />} title="Reports" description="Sales by day, top products, CSV download" onClick={() => navigate("/admin/reports")} />
           <ToolCard icon={<Inventory2 />} title="Products" description="Add, edit, price and import the catalog" onClick={() => navigate("/admin/products")} />
           <ToolCard icon={<Group />} title="Staff" description="Roles, and switching accounts on or off" onClick={() => navigate("/admin/users")} />
           <ToolCard icon={<History />} title="Activity log" description="Who changed what, and when" onClick={() => navigate("/admin/activity")} />

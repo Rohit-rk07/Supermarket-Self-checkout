@@ -74,6 +74,27 @@ const AccountPage = () => {
     const receipts = orders.filter((order) => order.paymentStatus === "paid" || order.paymentStatus === "refunded");
     const unfinished = orders.filter((order) => !(order.paymentStatus === "paid" || order.paymentStatus === "refunded"));
 
+    // Cancels every sign-in of this account (phone, laptop, a borrowed device), then signs this one out too
+    const [signingOutAll, setSigningOutAll] = useState(false);
+    const [signOutAllError, setSignOutAllError] = useState("");
+    const handleLogoutAll = async () => {
+        setSigningOutAll(true);
+        setSignOutAllError("");
+        try {
+            const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/auth/logout-all`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${user?.token}` }
+            });
+            if (!response.ok) throw new Error("Could not sign you out of all devices. Try again.");
+            logout();
+            navigate("/login");
+        } catch (error) {
+            setSignOutAllError(error.message);
+        } finally {
+            setSigningOutAll(false);
+        }
+    };
+
     const handleLogout = () => {
         logout();
         navigate("/login");
@@ -148,6 +169,15 @@ const AccountPage = () => {
                             <Button variant="outlined" color="error" onClick={handleLogout}>
                                 Log out
                             </Button>
+                            <Box sx={{ mt: 2 }}>
+                                <Button color="error" onClick={handleLogoutAll} disabled={signingOutAll}>
+                                    {signingOutAll ? "Signing out..." : "Sign out of all devices"}
+                                </Button>
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                    Use this if you lost your phone or signed in on a device that is not yours.
+                                </Typography>
+                                {signOutAllError && <Alert severity="error" sx={{ mt: 1 }}>{signOutAllError}</Alert>}
+                            </Box>
                         </Box>
                     </Box>
                 )}

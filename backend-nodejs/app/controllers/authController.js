@@ -231,7 +231,7 @@ export const verifyPhoneOTP = async (req, res) => {
     await user.save();
     
     // Generate JWT token
-    const token = generateJWT(user._id);
+    const token = generateJWT(user._id, user.tokenVersion || 0);
     
     // Check if user needs to complete registration (only if name is missing or still default)
     const needsRegistration = !user.name || user.name === 'Temp User';
@@ -319,6 +319,22 @@ export const completeRegistration = async (req, res) => {
       message: 'Registration completion failed',
       ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
+  }
+};
+
+// Sign out of every device: raising tokenVersion makes all tokens made so far stop working.
+// The caller gets a fresh token for this device in the answer only if they ask to stay signed in here.
+export const signOutEverywhere = async (req, res) => {
+  try {
+    // Demo shoppers have no account record, so there is nothing to cancel
+    if (!req.user?.isDemo) {
+      await User.updateOne({ _id: req.user._id }, { $inc: { tokenVersion: 1 } });
+    }
+    logger.authLog('SIGN_OUT_EVERYWHERE', req.user._id, {});
+    res.json({ success: true, message: 'You were signed out of all devices.' });
+  } catch (error) {
+    logger.error('Sign out everywhere error', { userId: req.user?._id, error: error.message });
+    res.status(500).json({ success: false, message: 'Could not sign you out of all devices' });
   }
 };
 

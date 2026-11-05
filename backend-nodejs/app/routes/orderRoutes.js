@@ -12,6 +12,7 @@ import {
   getBagCheckSetting,
   updateBagCheckSetting
 } from '../controllers/orderController.js';
+import { getSalesReport } from '../controllers/reportController.js';
 import { reconcileOrder, refundOrder, resolveRefundFailure } from '../controllers/paymentController.js';
 import { authenticateJWT, authorize } from '../middleware/auth.js';
 import { validateRequest } from '../middleware/validation.js';
@@ -61,6 +62,7 @@ router.get('/stats', authenticateJWT, authorize('admin', 'staff'), getOrderStats
 // Share of paid orders picked for a bag check at the exit (admin changes it)
 router.get('/settings/bag-check', authenticateJWT, authorize('admin', 'staff'), getBagCheckSetting);
 router.put('/settings/bag-check', authenticateJWT, authorize('admin'), validateRequest(bagCheckSettingSchema), updateBagCheckSetting);
+router.get('/reports/sales', authenticateJWT, authorize('admin'), getSalesReport);
 router.get('/all', authenticateJWT, authorize('admin', 'staff'), getAllOrders);
 router.get('/:orderId', authenticateJWT, getOrderById);
 router.put('/:orderId/status', authenticateJWT, authorize('admin'), validateRequest(updateOrderStatusSchema), updateOrderStatus);
