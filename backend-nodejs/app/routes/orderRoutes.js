@@ -12,7 +12,7 @@ import {
   getBagCheckSetting,
   updateBagCheckSetting
 } from '../controllers/orderController.js';
-import { reconcileOrder, refundOrder } from '../controllers/paymentController.js';
+import { reconcileOrder, refundOrder, resolveRefundFailure } from '../controllers/paymentController.js';
 import { authenticateJWT, authorize } from '../middleware/auth.js';
 import { validateRequest } from '../middleware/validation.js';
 import Joi from 'joi';
@@ -41,7 +41,14 @@ const bagCheckSettingSchema = Joi.object({
 });
 
 const refundSchema = Joi.object({
-  reason: Joi.string().trim().max(200).allow('').optional()
+  reason: Joi.string().trim().max(200).allow('').optional(),
+  // Leave out to refund everything that is left; or list what to hand back
+  items: Joi.array().items(
+    Joi.object({
+      barcode: Joi.string().required(),
+      quantity: Joi.number().integer().min(1).required()
+    })
+  ).max(100).optional()
 });
 
 // Routes
@@ -60,7 +67,9 @@ router.put('/:orderId/status', authenticateJWT, authorize('admin'), validateRequ
 router.put('/:orderId/cancel', authenticateJWT, cancelOrder);
 // Staff: ask Razorpay whether an unpaid order was actually paid, and mark it paid if so
 router.post('/:orderId/reconcile', authenticateJWT, authorize('admin', 'staff'), reconcileOrder);
-// Admin: refund a paid order in full through Razorpay
+// Admin: clear the warning after a failed refund was sorted out by hand
+router.post('/:orderId/refund-failure/clear', authenticateJWT, authorize('admin'), resolveRefundFailure);
+// Admin: refund a paid order (all of it, or chosen items) through Razorpay
 router.post('/:orderId/refund', authenticateJWT, authorize('admin'), validateRequest(refundSchema), refundOrder);
 
 export default router;

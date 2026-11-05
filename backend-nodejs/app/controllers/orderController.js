@@ -199,7 +199,7 @@ export const getUserOrders = async (req, res) => {
 
     const [orders, total] = await Promise.all([
       Order.find(query)
-        .select('orderNumber subtotal tax total status paymentStatus paymentMethod paidAt items createdAt')
+        .select('orderNumber subtotal tax total status paymentStatus paymentMethod paidAt items createdAt refundedAmount refundLines')
         .populate('items.productId', 'name price category')
         .sort({ createdAt: -1 })
         .limit(limit * 1)
@@ -238,7 +238,7 @@ export const getOrderById = async (req, res) => {
 
     // Staff-only fields (the bag-check decision, who let them out) are never sent to the shopper
     const order = await Order.findOne({ _id: orderId, userId })
-      .select('-bagCheckRequired -bagChecked -exitedBy -exitedByName -refundRequestedAt')
+      .select('-bagCheckRequired -bagChecked -bagResult -bagNote -exitedBy -exitedByName -refundRequestedAt -refundFailedAt -refundFailedId')
       .populate('items.productId', 'name price category description');
 
     if (!order) {
@@ -353,14 +353,18 @@ export const cancelOrder = async (req, res) => {
 export const getAllOrders = async (req, res) => {
   try {
     await expireStaleOrders();
-    const { page = 1, limit = 10, status, paymentStatus } = req.query;
+    const { page = 1, limit = 10, status, paymentStatus, flag } = req.query;
 
     const query = {};
     if (status) query.status = status;
     if (paymentStatus) query.paymentStatus = paymentStatus;
+    // Orders that need someone's attention
+    if (flag === 'refundFailed') query.refundFailedAt = { $exists: true };
+    if (flag === 'bagMismatch') query.bagResult = 'mismatch';
+    if (flag === 'partialRefund') query.refundedAmount = { $gt: 0 };
 
     const orders = await Order.find(query)
-      .select('orderNumber total status paymentStatus razorpayOrderId userPhone userName items createdAt paidAt exitedAt exitedByName bagCheckRequired bagChecked refundedAt refundReason')
+      .select('orderNumber total status paymentStatus razorpayOrderId userPhone userName items createdAt paidAt exitedAt exitedByName bagCheckRequired bagChecked bagResult bagNote refundedAt refundReason refundedAmount refundLines refundFailedAt')
       .populate('userId', 'name phoneNumber')
       .populate('items.productId', 'name price category')
       .sort({ createdAt: -1 })
@@ -397,7 +401,7 @@ export const verifyReceipt = async (req, res) => {
     const orderNumber = String(req.params.orderNumber || '').trim().toUpperCase();
 
     let order = await Order.findOne({ orderNumber })
-      .select('orderNumber items subtotal tax total status paymentStatus paidAt exitedAt exitedByName bagCheckRequired bagChecked createdAt userName')
+      .select('orderNumber items subtotal tax total status paymentStatus paidAt exitedAt exitedByName bagCheckRequired bagChecked bagResult bagNote refundedAmount refundLines createdAt userName')
       .lean();
 
     if (!order) {
@@ -444,6 +448,12 @@ export const confirmExit = async (req, res) => {
 
     // Staff tick a box on the screen to say they looked in the bag
     const bagChecked = req.body?.bagChecked === true;
+    // What they found: "matched" (the default when only the tick is sent) or "mismatch" with a note
+    const bagResult = bagChecked ? (req.body?.bagResult === 'mismatch' ? 'mismatch' : 'matched') : undefined;
+    const bagNote = String(req.body?.bagNote || '').trim().slice(0, 300);
+    if (bagResult === 'mismatch' && bagNote.length < 3) {
+      return res.status(400).json({ success: false, result: 'NOTE_REQUIRED', message: 'Write a short note about what did not match.' });
+    }
 
     // Make sure the bag-check decision exists even if staff confirm without opening the receipt first
     const current = await Order.findOne({ orderNumber }).select('paymentStatus status exitedAt bagCheckRequired').lean();
@@ -464,11 +474,13 @@ export const confirmExit = async (req, res) => {
           exitedAt: new Date(),
           exitedBy: req.user._id,
           exitedByName: req.user.name || req.user.phoneNumber,
-          bagChecked
+          bagChecked,
+          ...(bagResult ? { bagResult } : {}),
+          ...(bagResult === 'mismatch' ? { bagNote } : {})
         }
       },
       { new: true }
-    ).select('orderNumber total exitedAt exitedByName bagChecked').lean();
+    ).select('orderNumber total exitedAt exitedByName bagChecked bagResult').lean();
 
     if (order) {
       return res.json({
@@ -531,7 +543,7 @@ export const getOrderStats = async (req, res) => {
     const sinceValid = !Number.isNaN(sinceParam.getTime()) && Date.now() - sinceParam.getTime() < 48 * 60 * 60 * 1000;
     const since = sinceValid ? sinceParam : new Date(new Date().setHours(0, 0, 0, 0));
 
-    const [salesToday, awaitingExit, exitedToday, refundedToday, lowStock] = await Promise.all([
+    const [salesToday, awaitingExit, exitedToday, refundedToday, partialToday, lowStock, refundsFailed, bagCheckedToday, bagMismatchToday] = await Promise.all([
       Order.aggregate([
         { $match: { paymentStatus: 'paid', paidAt: { $gte: since } } },
         { $group: { _id: null, total: { $sum: '$total' }, count: { $sum: 1 } } }
@@ -539,10 +551,21 @@ export const getOrderStats = async (req, res) => {
       Order.countDocuments({ paymentStatus: 'paid', exitedAt: { $exists: false }, status: { $ne: 'cancelled' } }),
       Order.countDocuments({ exitedAt: { $gte: since } }),
       Order.aggregate([
-        { $match: { paymentStatus: 'refunded', refundedAt: { $gte: since } } },
+        // Refunds made before partial refunds existed have no refund lines; their amount is the whole order
+        { $match: { paymentStatus: 'refunded', refundedAt: { $gte: since }, 'refundLines.0': { $exists: false } } },
         { $group: { _id: null, total: { $sum: '$total' }, count: { $sum: 1 } } }
       ]),
-      Product.countDocuments({ isActive: true, trackStock: true, stock: { $lte: LOW_STOCK_LEVEL } })
+      Order.aggregate([
+        { $match: { 'refundLines.at': { $gte: since } } },
+        { $unwind: '$refundLines' },
+        { $match: { 'refundLines.at': { $gte: since } } },
+        { $group: { _id: '$refundLines.refundId', amount: { $sum: '$refundLines.amount' } } },
+        { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+      ]),
+      Product.countDocuments({ isActive: true, trackStock: true, stock: { $lte: LOW_STOCK_LEVEL } }),
+      Order.countDocuments({ refundFailedAt: { $exists: true } }),
+      Order.countDocuments({ exitedAt: { $gte: since }, bagChecked: true }),
+      Order.countDocuments({ exitedAt: { $gte: since }, bagResult: 'mismatch' })
     ]);
 
     const recentOrders = await Order.find()
@@ -569,9 +592,12 @@ export const getOrderStats = async (req, res) => {
           paidOrders: salesToday[0]?.count || 0,
           awaitingExit,
           exited: exitedToday,
-          refunds: refundedToday[0]?.count || 0,
-          refundedAmount: refundedToday[0]?.total || 0,
-          lowStock
+          refunds: (refundedToday[0]?.count || 0) + (partialToday[0]?.count || 0),
+          refundedAmount: (refundedToday[0]?.total || 0) + (partialToday[0]?.total || 0),
+          lowStock,
+          refundsFailed, // orders where Razorpay said a refund failed (all time, until an admin clears it)
+          bagChecked: bagCheckedToday,
+          bagMismatches: bagMismatchToday
         },
         recentOrders,
         payments: {

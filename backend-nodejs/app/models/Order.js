@@ -94,12 +94,29 @@ const orderSchema = new mongoose.Schema({
   // Random bag check (R-10). Decided once, the first time staff look at a paid receipt, and never shown to the shopper
   bagCheckRequired: Boolean,
   bagChecked: Boolean, // staff ticked that they checked the bag when confirming the exit
+  bagResult: { type: String, enum: ['matched', 'mismatch'] }, // what staff found when they looked in the bag
+  bagNote: String, // what did not match (required with a mismatch)
   // Refund (R-23)
   refundRequestedAt: Date, // set while a refund is being made, so two admins cannot refund twice
   refundId: String,
   refundedAt: Date,
   refundedBy: mongoose.Schema.Types.Mixed,
   refundReason: String,
+  // Partial refunds: every refund made on this order, and the money returned so far
+  refundedAmount: { type: Number, min: 0 },
+  refundLines: [{
+    _id: false,
+    barcode: String,
+    name: String,
+    quantity: Number,
+    amount: Number,
+    refundId: String,
+    at: Date,
+    reason: String
+  }],
+  // Razorpay told us a refund did not go through; the admin must follow up by hand
+  refundFailedAt: Date,
+  refundFailedId: String,
   orderNumber: {
     type: String,
     unique: true,

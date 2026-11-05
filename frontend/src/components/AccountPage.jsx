@@ -44,6 +44,11 @@ const OrderRow = ({ order, onView }) => {
                 <Typography variant="body2" color="text.secondary" sx={{ mb: isReceipt ? 1.25 : 0 }}>
                     {formatDateTime(order.paidAt || order.createdAt)} · {count} {count === 1 ? "item" : "items"}
                 </Typography>
+                {order.paymentStatus === "paid" && order.refundedAmount > 0 && (
+                    <Typography variant="body2" sx={{ mb: 1.25, color: "warning.main", fontWeight: 600 }}>
+                        <Money value={order.refundedAmount} /> was refunded to you
+                    </Typography>
+                )}
                 {isReceipt && (
                     <Button variant="outlined" size="small" onClick={() => onView(order)}>
                         View receipt

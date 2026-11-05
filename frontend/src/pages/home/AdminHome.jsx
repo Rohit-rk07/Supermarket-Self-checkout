@@ -49,6 +49,24 @@ const AdminHome = ({ onShop }) => {
         {payments?.webhookConfigured && !payments.lastWebhookAt && (
           <Alert severity="info" sx={{ mb: 1.5 }}>Payment webhook is on, but no call has arrived yet.</Alert>
         )}
+        {today?.refundsFailed > 0 && (
+          <Alert
+            severity="error"
+            sx={{ mb: 1.5 }}
+            action={<Button color="inherit" size="small" onClick={() => navigate("/staff/orders?show=refundFailed")}>See them</Button>}
+          >
+            Razorpay could not complete {today.refundsFailed} {today.refundsFailed === 1 ? "refund" : "refunds"}. The shopper has not got their money back yet.
+          </Alert>
+        )}
+        {today?.bagMismatches > 0 && (
+          <Alert
+            severity="warning"
+            sx={{ mb: 1.5 }}
+            action={<Button color="inherit" size="small" onClick={() => navigate("/staff/orders?show=bagMismatch")}>See them</Button>}
+          >
+            {today.bagMismatches} bag {today.bagMismatches === 1 ? "check" : "checks"} found a mismatch today.
+          </Alert>
+        )}
         {today?.lowStock > 0 && (
           <Alert
             severity="warning"
@@ -70,6 +88,13 @@ const AdminHome = ({ onShop }) => {
             onClick={() => navigate("/staff/verify")}
           />
           <Tile label="Exited today" value={loading ? "..." : today?.exited ?? 0} />
+          <Tile
+            label="Bag checks today"
+            value={loading ? "..." : today?.bagChecked ?? 0}
+            hint={today?.bagMismatches > 0 ? `${today.bagMismatches} mismatch` : "no mismatches"}
+            tone={today?.bagMismatches > 0 ? "warning" : undefined}
+            onClick={() => navigate("/staff/orders?show=bagMismatch")}
+          />
           <Tile
             label="Low stock"
             value={loading ? "..." : today?.lowStock ?? 0}

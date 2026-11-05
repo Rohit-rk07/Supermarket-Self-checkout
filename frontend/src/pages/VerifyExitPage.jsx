@@ -1,6 +1,6 @@
 import { useState, useCallback, lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
-import { Box, Typography, Button, TextField, CircularProgress, Checkbox, FormControlLabel } from "@mui/material";
+import { Box, Typography, Button, TextField, CircularProgress, Radio, RadioGroup, FormControlLabel } from "@mui/material";
 import { QrCodeScanner } from "@mui/icons-material";
 import { useAuth } from "../context/AuthContext";
 import TopBar from "../components/ui/TopBar";
@@ -34,8 +34,9 @@ const VerifyExitPage = () => {
     const [loading, setLoading] = useState(false);
     const [confirming, setConfirming] = useState(false);
     const [scannerOpen, setScannerOpen] = useState(false);
-    // Set when the shopper's bag was picked for a random check; staff must tick before Confirm exit
-    const [bagTicked, setBagTicked] = useState(false);
+    // Set when the shopper's bag was picked for a random check: staff say what they found before Confirm exit
+    const [bagResult, setBagResult] = useState(""); // "", "matched" or "mismatch"
+    const [bagNote, setBagNote] = useState("");
 
     const authHeaders = useCallback(() => ({
         "Content-Type": "application/json",
@@ -49,7 +50,8 @@ const VerifyExitPage = () => {
         setCode(orderNumber);
         setLoading(true);
         setVerdict(null);
-        setBagTicked(false);
+        setBagResult("");
+        setBagNote("");
 
         try {
             const response = await fetch(`${API_URL}/verify/${encodeURIComponent(orderNumber)}`, {
@@ -83,15 +85,21 @@ const VerifyExitPage = () => {
             const response = await fetch(`${API_URL}/verify/${encodeURIComponent(verdict.order.orderNumber)}/exit`, {
                 method: "POST",
                 headers: authHeaders(),
-                body: JSON.stringify({ bagChecked: verdict.bagCheckRequired === true && bagTicked })
+                body: JSON.stringify(
+                    verdict.bagCheckRequired === true
+                        ? { bagChecked: true, bagResult, bagNote: bagResult === "mismatch" ? bagNote.trim() : undefined }
+                        : { bagChecked: false }
+                )
             });
             const data = await response.json();
 
             if (response.ok) {
                 setVerdict({ result: "EXIT_CONFIRMED", order: verdict.order });
             } else if (data.result === "BAG_CHECK_REQUIRED") {
-                // Stay on the receipt: staff just need to look in the bag and tick the box
+                // Stay on the receipt: staff just need to look in the bag and say what they found
                 setVerdict({ ...verdict, bagCheckRequired: true, message: data.message });
+            } else if (data.result === "NOTE_REQUIRED") {
+                setVerdict({ ...verdict, message: data.message });
             } else {
                 setVerdict({ result: data.result || "ERROR", order: verdict.order, message: data.message });
             }
@@ -105,8 +113,12 @@ const VerifyExitPage = () => {
     const reset = () => {
         setVerdict(null);
         setCode("");
-        setBagTicked(false);
+        setBagResult("");
+        setBagNote("");
     };
+
+    // The exit button stays off until the bag check (when there is one) has an answer
+    const bagAnswered = bagResult === "matched" || (bagResult === "mismatch" && bagNote.trim().length >= 3);
 
     if (!canVerify) {
         return (
@@ -200,11 +212,21 @@ const VerifyExitPage = () => {
                                 <Typography sx={{ mt: 0.5, fontWeight: 600 }}>
                                     This bag was picked for a check. Compare it with the list below.
                                 </Typography>
-                                <FormControlLabel
-                                    sx={{ mt: 1, ml: 0, alignItems: "flex-start" }}
-                                    control={<Checkbox checked={bagTicked} onChange={(event) => setBagTicked(event.target.checked)} sx={{ py: 0.5 }} />}
-                                    label="I have checked the bag against this list"
-                                />
+                                <RadioGroup value={bagResult} onChange={(event) => setBagResult(event.target.value)} sx={{ mt: 1 }}>
+                                    <FormControlLabel value="matched" control={<Radio />} label="Matched: the bag has what the list says" />
+                                    <FormControlLabel value="mismatch" control={<Radio />} label="Mismatch found" />
+                                </RadioGroup>
+                                {bagResult === "mismatch" && (
+                                    <TextField
+                                        fullWidth
+                                        size="small"
+                                        label="What did not match?"
+                                        value={bagNote}
+                                        onChange={(event) => setBagNote(event.target.value)}
+                                        inputProps={{ maxLength: 300 }}
+                                        sx={{ mt: 1, backgroundColor: "background.paper" }}
+                                    />
+                                )}
                             </Box>
                         )}
 
@@ -235,6 +257,15 @@ const VerifyExitPage = () => {
                                     <Money value={order.total} sx={{ fontWeight: 700 }} />
                                 </Box>
 
+                                {order.refundedAmount > 0 && (
+                                    <Box sx={{ mt: 1.5, p: 1.5, borderRadius: "8px", backgroundColor: tokens.warning.bg, color: tokens.warning.fg }}>
+                                        <Typography fontWeight={700}>Part of this order was refunded (<Money value={order.refundedAmount} />)</Typography>
+                                        {(order.refundLines || []).map((line, index) => (
+                                            <Typography key={index} variant="body2">{line.quantity} {"×"} {line.name} was returned</Typography>
+                                        ))}
+                                    </Box>
+                                )}
+
                                 {/* 3. Only now, the action */}
                                 {verdict.result === "PAID" && (
                                     <Button
@@ -242,7 +273,7 @@ const VerifyExitPage = () => {
                                         fullWidth
                                         size="large"
                                         onClick={confirmExit}
-                                        disabled={confirming || (verdict.bagCheckRequired && !bagTicked)}
+                                        disabled={confirming || (verdict.bagCheckRequired && !bagAnswered)}
                                         sx={{ mt: 1 }}
                                     >
                                         {confirming ? "Confirming..." : "Confirm exit"}
