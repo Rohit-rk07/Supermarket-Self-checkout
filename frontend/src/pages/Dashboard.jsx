@@ -19,7 +19,7 @@ const readShopMode = () => {
 
 // Each role gets its own first page: shoppers scan and pay, staff run the exit desk, admins see how the shop is doing
 const Dashboard = () => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const [shopMode, setShopModeState] = useState(readShopMode);
 
   const setShopMode = (value) => {
@@ -31,6 +31,9 @@ const Dashboard = () => {
       // Not remembering the choice is fine
     }
   };
+
+  // Wait for the saved sign-in to be checked, so a signed-in admin does not flash the shopper page first
+  if (loading) return <LoadingSpinner message="Loading..." />;
 
   const role = user?.role;
   const isStore = role === "admin" || role === "staff";

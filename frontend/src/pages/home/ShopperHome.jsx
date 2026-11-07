@@ -44,7 +44,8 @@ const ShopperHome = ({ onBackToDesk }) => {
     try {
       const SERVER_URL = import.meta.env.VITE_SERVER_URL;
       const response = await fetch(`${SERVER_URL}/api/v1/scan/${encodeURIComponent(barcode)}`, {
-        headers: { Authorization: `Bearer ${user?.token}` },
+        // Scanning works for visitors too; the sign-in only counts at checkout
+        headers: user?.token ? { Authorization: `Bearer ${user.token}` } : {},
       });
       const body = await response.json().catch(() => ({}));
 

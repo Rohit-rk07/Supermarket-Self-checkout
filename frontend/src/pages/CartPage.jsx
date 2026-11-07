@@ -2,6 +2,8 @@ import { Box, Typography, Button, IconButton } from "@mui/material";
 import { Add, Remove, QrCodeScanner } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../context/CartContext";
+import { useAuth } from "../context/AuthContext";
+import { useSignInPrompt } from "../context/SignInPrompt";
 import TopBar from "../components/ui/TopBar";
 import Money from "../components/ui/Money";
 import { getBasketTotals } from "../utils/money";
@@ -27,6 +29,13 @@ const Stepper = ({ item, onChange }) => {
 const CartPage = () => {
     const { cart, cartReady, removeFromCart, updateQuantity, clearCart } = useCart();
     const navigate = useNavigate();
+    const { user } = useAuth();
+    const { promptSignIn } = useSignInPrompt();
+    // Paying needs an account (the receipt belongs to someone); ask at this moment, and carry on to checkout afterwards
+    const goToPay = () => {
+        if (user) navigate("/checkout");
+        else promptSignIn({ reason: "Sign in to pay and get your receipt.", returnTo: "/checkout" });
+    };
 
     const itemCount = cart.reduce((count, item) => count + (item.quantity || 1), 0);
     const { subtotal, tax, taxIncluded, total } = getBasketTotals(cart);
@@ -151,7 +160,7 @@ const CartPage = () => {
                         <Money value={total} sx={{ fontFamily: fonts.serif, fontWeight: 700, fontSize: "1.75rem" }} />
                     </Box>
 
-                    <Button variant="contained" size="large" fullWidth sx={{ mt: 2.5 }} onClick={() => navigate("/checkout")}>
+                    <Button variant="contained" size="large" fullWidth sx={{ mt: 2.5 }} onClick={goToPay}>
                         Pay <Money value={total} sx={{ ml: 0.75 }} />
                     </Button>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, textAlign: "center" }}>

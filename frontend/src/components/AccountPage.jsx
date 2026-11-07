@@ -88,7 +88,7 @@ const AccountPage = () => {
             });
             if (!response.ok) throw new Error("Could not sign you out of all devices. Try again.");
             logout();
-            navigate("/login");
+            navigate("/dashboard");
         } catch (error) {
             setSignOutAllError(error.message);
         } finally {
@@ -121,7 +121,7 @@ const AccountPage = () => {
 
     const handleLogout = () => {
         logout();
-        navigate("/login");
+        navigate("/dashboard");
     };
 
     return (

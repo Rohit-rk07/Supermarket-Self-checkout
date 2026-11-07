@@ -1,7 +1,8 @@
-import { Box, Typography, IconButton, Avatar } from '@mui/material';
+import { Box, Typography, IconButton, Avatar, Button } from '@mui/material';
 import { ArrowBack } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useSignInPrompt } from '../../context/SignInPrompt';
 import { fonts } from '../../theme/theme';
 
 export const Wordmark = ({ light = false, sx }) => (
@@ -24,6 +25,7 @@ export const Wordmark = ({ light = false, sx }) => (
 const TopBar = ({ title, backTo, right, hideAccount = false }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { promptSignIn } = useSignInPrompt();
   const initial = (user?.name || user?.email || 'U').toString().trim()[0]?.toUpperCase();
 
   return (
@@ -74,6 +76,13 @@ const TopBar = ({ title, backTo, right, hideAccount = false }) => {
               {initial}
             </Avatar>
           </IconButton>
+        ) : null}
+
+        {/* Visitors who have not signed in see a button where the account picture would be */}
+        {!user && !hideAccount ? (
+          <Button variant="outlined" size="small" onClick={() => promptSignIn({ reason: 'Sign in to see your receipts and pay.' })}>
+            Sign in
+          </Button>
         ) : null}
       </Box>
     </Box>

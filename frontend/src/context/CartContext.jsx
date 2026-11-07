@@ -16,11 +16,24 @@ export const CartProvider = ({ children }) => {
         const key = user ? `cart_${user.id || user.email}` : 'cart_guest';
         try {
             const saved = localStorage.getItem(key);
-            if (saved) {
-                setCart(JSON.parse(saved));
-            } else {
-                setCart([]);
+            let loaded = saved ? JSON.parse(saved) : [];
+
+            // A visitor who scanned items and then signed in keeps them: fold the guest basket into the account's basket
+            if (user) {
+                const guestSaved = localStorage.getItem('cart_guest');
+                const guestItems = guestSaved ? JSON.parse(guestSaved) : [];
+                if (guestItems.length > 0) {
+                    const merged = [...loaded];
+                    for (const item of guestItems) {
+                        const same = merged.find((entry) => entry.barcode === item.barcode);
+                        if (same) same.quantity = (same.quantity || 1) + (item.quantity || 1);
+                        else merged.push(item);
+                    }
+                    loaded = merged;
+                }
+                localStorage.removeItem('cart_guest');
             }
+            setCart(loaded);
         } catch (e) {
             console.error("Failed to load cart from storage", e);
             setCart([]);

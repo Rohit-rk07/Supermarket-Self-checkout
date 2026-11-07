@@ -3,6 +3,7 @@ import { ThemeProvider, CssBaseline } from "@mui/material";
 import { Suspense, lazy } from "react";
 import { CartProvider } from "./context/CartContext";
 import { AuthProvider } from "./context/AuthContext";
+import { SignInPromptProvider } from "./context/SignInPrompt";
 import { OrderProvider } from "./context/OrderContext"; 
 import ProtectedRoute from "./components/ProtectedRoute";
 import LoadingSpinner from "./components/LoadingSpinner";
@@ -31,12 +32,14 @@ function App() {
                 <AuthProvider>
                     <CartProvider>
                         <OrderProvider>
+                          <SignInPromptProvider>
                             <Suspense fallback={<LoadingSpinner message="Loading page..." />}>
                                 <Routes>
-                                    <Route path="/" element={<LoginPage />} />
+                                    {/* Open to everyone: the shop home (scan and fill a basket) and the basket. Signing in is asked for at checkout. */}
+                                    <Route path="/" element={<Dashboard />} />
                                     <Route path="/login" element={<LoginPage />} />
-                                    <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-                                    <Route path="/cart" element={<ProtectedRoute><CartPage /></ProtectedRoute>} />
+                                    <Route path="/dashboard" element={<Dashboard />} />
+                                    <Route path="/cart" element={<CartPage />} />
                                     <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
                                     <Route path="/BarcodeScanner" element={<ProtectedRoute><BarcodeScanner /></ProtectedRoute>} />
                                     <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
@@ -49,6 +52,7 @@ function App() {
                                     <Route path="/admin/reports" element={<ProtectedRoute><AdminReportsPage /></ProtectedRoute>} />
                                 </Routes>
                             </Suspense>
+                          </SignInPromptProvider>
                         </OrderProvider>
                     </CartProvider>
                 </AuthProvider>
