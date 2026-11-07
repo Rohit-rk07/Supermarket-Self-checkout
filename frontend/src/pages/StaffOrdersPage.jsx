@@ -42,8 +42,13 @@ const refundableLines = (order) => {
     return [...lines.values()].filter((row) => row.left > 0);
 };
 
-// Staff see a name and the last 4 digits only
-const maskPhone = (phone) => (phone ? `•••• ${String(phone).slice(-4)}` : "");
+// Staff see a name and a masked contact only: last 4 digits of a phone, or a masked email
+const maskContact = (order) => {
+    if (order.userPhone) return `•••• ${String(order.userPhone).slice(-4)}`;
+    const email = String(order.userEmail || "");
+    const at = email.indexOf("@");
+    return at > 0 ? `${email[0]}***${email.slice(at)}` : "";
+};
 
 const StatCard = ({ label, value }) => (
     <Box sx={{ p: 2, border: 1, borderColor: "divider", borderRadius: "10px", backgroundColor: "background.paper" }}>
@@ -219,7 +224,7 @@ const StaffOrdersPage = () => {
                 <>
                     {order.userName || "Customer"}
                     <Typography component="span" variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                        {maskPhone(order.userPhone)}
+                        {maskContact(order)}
                     </Typography>
                 </>
             )

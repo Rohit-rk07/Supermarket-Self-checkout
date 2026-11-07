@@ -1,10 +1,14 @@
 import mongoose from 'mongoose';
 
 const userSchema = new mongoose.Schema({
-  phoneNumber: {
+  // Who they are: the Google account they sign in with
+  googleId: {
     type: String,
-    required: true,
-    unique: true,
+    trim: true
+  },
+  email: {
+    type: String,
+    lowercase: true,
     trim: true
   },
   name: {
@@ -12,17 +16,18 @@ const userSchema = new mongoose.Schema({
     required: false,
     trim: true
   },
-  email: {
+  picture: String,
+  // Optional contact number the person can add in their profile. Not used to sign in.
+  phoneNumber: {
     type: String,
-    lowercase: true,
-    trim: true,
-    sparse: true
+    trim: true
   },
   role: {
     type: String,
     enum: ['customer', 'admin', 'staff'],
     default: 'customer'
   },
+  // Kept from the old phone sign-in so existing accounts still show in the staff list
   isPhoneVerified: {
     type: Boolean,
     default: false
@@ -36,27 +41,23 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  isNewUser: {
-    type: Boolean,
-    default: true
-  },
   lastLogin: {
     type: Date,
     default: Date.now
-  },
-  otpCode: String,
-  otpExpires: Date
+  }
 }, {
   timestamps: true
 });
 
-// Indexes
+// Indexes. Uniqueness only applies to accounts that actually have the value, so many accounts can have no phone.
+userSchema.index({ phoneNumber: 1 }, { unique: true, partialFilterExpression: { phoneNumber: { $type: 'string' } } });
+userSchema.index({ googleId: 1 }, { unique: true, partialFilterExpression: { googleId: { $type: 'string' } } });
+userSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { email: { $type: 'string' } } });
 userSchema.index({ role: 1 });
 userSchema.index({ isActive: 1 });
 userSchema.index({ createdAt: -1 });
 // Compound indexes for common query patterns
 userSchema.index({ role: 1, isActive: 1 });
-userSchema.index({ isPhoneVerified: 1, isActive: 1 });
 
 // Pre-save middleware
 userSchema.pre('save', function(next) {
@@ -68,20 +69,6 @@ userSchema.pre('save', function(next) {
 userSchema.methods.updateLastLogin = function() {
   this.lastLogin = new Date();
   return this.save();
-};
-
-
-// Generate OTP
-userSchema.methods.generateOTP = function() {
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  this.otpCode = otp;
-  this.otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
-  return otp;
-};
-
-// Verify OTP
-userSchema.methods.verifyOTP = function(otp) {
-  return this.otpCode === otp && this.otpExpires > Date.now();
 };
 
 const User = mongoose.model('User', userSchema);

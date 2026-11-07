@@ -24,7 +24,7 @@ export const Wordmark = ({ light = false, sx }) => (
 const TopBar = ({ title, backTo, right, hideAccount = false }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const initial = (user?.name || user?.phoneNumber || 'U').toString().trim()[0]?.toUpperCase();
+  const initial = (user?.name || user?.email || 'U').toString().trim()[0]?.toUpperCase();
 
   return (
     <Box
@@ -70,7 +70,7 @@ const TopBar = ({ title, backTo, right, hideAccount = false }) => {
 
         {user && !hideAccount ? (
           <IconButton aria-label="Your account" onClick={() => navigate('/account')}>
-            <Avatar sx={{ width: 34, height: 34, bgcolor: 'primary.main', fontSize: '0.9rem', fontWeight: 600 }}>
+            <Avatar src={user?.picture || undefined} imgProps={{ referrerPolicy: 'no-referrer' }} alt="" sx={{ width: 34, height: 34, bgcolor: 'primary.main', fontSize: '0.9rem', fontWeight: 600 }}>
               {initial}
             </Avatar>
           </IconButton>

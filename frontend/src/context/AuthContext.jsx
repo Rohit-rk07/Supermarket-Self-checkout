@@ -3,6 +3,20 @@ import { createContext, useContext, useState, useEffect } from "react";
 // Create context
 const AuthContext = createContext(null);
 
+const API = import.meta.env.VITE_SERVER_URL;
+
+// The shape of the signed-in person used all over the app. `id` and `_id` are the same value.
+const toUser = (person, token) => ({
+    id: person.id || person._id,
+    _id: person._id || person.id,
+    name: person.name,
+    email: person.email,
+    phoneNumber: person.phoneNumber,
+    picture: person.picture,
+    role: person.role,
+    token
+});
+
 // Create provider component
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
@@ -28,23 +42,16 @@ export const AuthProvider = ({ children }) => {
             if (token) {
                 try {
                     // Verify token with backend
-                    const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/auth/profile`, {
+                    const response = await fetch(`${API}/api/auth/profile`, {
                         headers: {
                             'Authorization': `Bearer ${token}`,
                             'Content-Type': 'application/json'
                         }
                     });
-                    
+
                     if (response.ok) {
                         const data = await response.json();
-                        setUser({
-                            id: data.data.id || data.data._id,
-                            name: data.data.name,
-                            phoneNumber: data.data.phoneNumber,
-                            email: data.data.email,
-                            token: token,
-                            role: data.data.role
-                        });
+                        setUser(toUser(data.data, token));
                     } else if (response.status === 401 || response.status === 403) {
                         // The server says this token is not valid (expired or revoked): sign out
                         localStorage.removeItem('authToken');
@@ -68,103 +75,28 @@ export const AuthProvider = ({ children }) => {
         checkAuthState();
     }, []);
 
-    // Login function for demo and regular users
-    const login = async (userData) => {
-        try {
-            setSessionExpired(false);
-            setUser({
-                ...userData.user,
-                token: userData.token
-            });
-            localStorage.setItem('token', userData.token);
-            if (userData.user) {
-                localStorage.setItem('user', JSON.stringify(userData.user));
-            }
-        } catch (error) {
-            console.error('Login error:', error);
-            throw error;
-        }
-    };
-
-    // Development demo login uses a short-lived JWT issued by the backend.
-    const loginAsDemo = async () => {
+    // Sign in with the credential Google's button hands back
+    const loginWithGoogle = async (credential) => {
         try {
             setError("");
-            const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/auth/demo-login`, {
-                method: 'POST'
-            });
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.message || "Demo login is unavailable");
-            }
-
-            await login(data.data);
-            return data;
-        } catch (error) {
-            setError(error.message || "Demo login failed");
-            throw error;
-        }
-    };
-
-    // Send OTP to phone number
-    const sendPhoneOTP = async (phoneNumber) => {
-        try {
-            setError("");
-            const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/auth/phone/send-otp`, {
+            const response = await fetch(`${API}/api/auth/google`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ phoneNumber })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ credential })
             });
-            
             const data = await response.json();
             if (!response.ok) {
-                throw new Error(data.message);
+                throw new Error(data.message || "Sign-in failed. Please try again.");
             }
-            
-            return data;
-        } catch (error) {
-            console.error("Send OTP error:", error);
-            setError(error.message || "Failed to send OTP");
-            throw error;
-        }
-    };
 
-    // Verify OTP and login/register
-    const verifyPhoneOTP = async (phoneNumber, otp) => {
-        try {
-            setError("");
-            const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/auth/phone/verify-otp`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ phoneNumber, otp })
-            });
-            
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.message);
-            }
-            
-            // Store token
+            const signedIn = toUser(data.data.user, data.data.token);
             localStorage.setItem('token', data.data.token);
+            localStorage.setItem('user', JSON.stringify(data.data.user));
             setSessionExpired(false);
-            
-            setUser({
-                id: data.data.user._id,
-                name: data.data.user.name,
-                phoneNumber: data.data.user.phoneNumber,
-                email: data.data.user.email,
-                token: data.data.token,
-                role: data.data.user.role
-            });
-            
-            return data;
+            setUser(signedIn);
+            return signedIn;
         } catch (error) {
-            console.error("Verify OTP error:", error);
-            setError(error.message || "Failed to verify OTP");
+            setError(error.message || "Sign-in failed. Please try again.");
             throw error;
         }
     };
@@ -174,6 +106,7 @@ export const AuthProvider = ({ children }) => {
         try {
             localStorage.removeItem('authToken');
             localStorage.removeItem('token');
+            localStorage.removeItem('user');
             setUser(null);
             setSessionExpired(false);
         } catch (error) {
@@ -182,45 +115,11 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    // Complete registration for new users
-    const completeRegistration = async (name, email) => {
-        try {
-            setError("");
-            const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/auth/complete-registration`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${user.token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ name, email })
-            });
-            
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.message);
-            }
-            
-            // Update user state with completed registration
-            setUser({
-                ...user,
-                name: data.data.name,
-                email: data.data.email,
-                isNewUser: false
-            });
-            
-            return data;
-        } catch (error) {
-            console.error("Complete registration error:", error);
-            setError(error.message || "Failed to complete registration");
-            throw error;
-        }
-    };
-
-    // Update user profile
+    // Update user profile (name, and an optional contact number)
     const updateProfile = async (profileData) => {
         try {
             setError("");
-            const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/auth/profile`, {
+            const response = await fetch(`${API}/api/auth/profile`, {
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${user.token}`,
@@ -228,21 +127,16 @@ export const AuthProvider = ({ children }) => {
                 },
                 body: JSON.stringify(profileData)
             });
-            
+
             const data = await response.json();
             if (!response.ok) {
-                throw new Error(data.message);
+                throw new Error(data.message || "Could not save your profile");
             }
-            
-            setUser({
-                ...user,
-                ...data.data
-            });
-            
+
+            setUser((current) => ({ ...current, ...toUser(data.data, current.token) }));
             return data;
         } catch (error) {
             console.error("Update profile error:", error);
-            setError(error.message || "Failed to update profile");
             throw error;
         }
     };
@@ -253,12 +147,8 @@ export const AuthProvider = ({ children }) => {
         loading,
         error,
         sessionExpired,
-        sendPhoneOTP,
-        verifyPhoneOTP,
-        completeRegistration,
+        loginWithGoogle,
         updateProfile,
-        login,
-        loginAsDemo,
         logout
     };
 

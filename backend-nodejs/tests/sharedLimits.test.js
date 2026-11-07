@@ -1,7 +1,7 @@
 import { describe, test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
-import { start, stop, clearData, api, Order } from '../test-support/setup.js';
+import { start, stop, clearData, api, Order, setGoogleVerifier } from '../test-support/setup.js';
 
 const { default: MongoRateLimitStore } = await import('../app/utils/mongoRateLimitStore.js');
 const { default: RateLimit } = await import('../app/models/RateLimit.js');
@@ -73,24 +73,17 @@ describe('the shared (database) rate-limit store', () => {
   });
 });
 
-describe('the OTP code-guessing limit', () => {
-  test('after 5 wrong codes for one phone number the 6th attempt is blocked with 429', async () => {
-    const body = { phoneNumber: '+15555559999', otp: '000000' };
+describe('the sign-in limit', () => {
+  test('after 60 attempts from one address the next one is blocked with 429, and the count is kept in the database', async () => {
+    setGoogleVerifier(async () => { throw new Error('not a real token'); });
+    const body = { credential: 'x'.repeat(40) };
     const statuses = [];
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      statuses.push((await api('POST', '/api/auth/phone/verify-otp', { body })).status);
+    for (let attempt = 0; attempt < 61; attempt += 1) {
+      statuses.push((await api('POST', '/api/auth/google', { body })).status);
     }
-    assert.ok(statuses.slice(0, 5).every((status) => status !== 429), statuses.join(','));
-    assert.equal(statuses[5], 429);
-    assert.equal(await RateLimit.countDocuments({ key: /^otp-verify:/ }), 1);
-  });
-
-  test('a different phone number is not affected', async () => {
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      await api('POST', '/api/auth/phone/verify-otp', { body: { phoneNumber: '+15555559998', otp: '000000' } });
-    }
-    const other = await api('POST', '/api/auth/phone/verify-otp', { body: { phoneNumber: '+15555559997', otp: '000000' } });
-    assert.notEqual(other.status, 429);
+    assert.ok(statuses.slice(0, 60).every((status) => status === 401), statuses.slice(0, 60).join(','));
+    assert.equal(statuses[60], 429);
+    assert.equal(await RateLimit.countDocuments({ key: /^google-ip:/ }), 1);
   });
 });
 

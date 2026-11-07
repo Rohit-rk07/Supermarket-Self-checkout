@@ -11,6 +11,7 @@ import {
     DialogActions,
     CircularProgress,
     Alert,
+    TextField,
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -64,7 +65,7 @@ const OrderRow = ({ order, onView }) => {
 };
 
 const AccountPage = () => {
-    const { user, logout } = useAuth();
+    const { user, logout, updateProfile } = useAuth();
     const { orders, loading, error } = useOrders();
     const navigate = useNavigate();
     const [tab, setTab] = useState("receipts");
@@ -95,6 +96,29 @@ const AccountPage = () => {
         }
     };
 
+    // Edit the name and the optional contact number (the email belongs to the Google account)
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState({ name: "", phoneNumber: "" });
+    const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState("");
+    const startEditing = () => {
+        setDraft({ name: user?.name || "", phoneNumber: user?.phoneNumber || "" });
+        setSaveError("");
+        setEditing(true);
+    };
+    const saveProfile = async () => {
+        setSaving(true);
+        setSaveError("");
+        try {
+            await updateProfile({ name: draft.name.trim(), phoneNumber: draft.phoneNumber.trim() });
+            setEditing(false);
+        } catch (error) {
+            setSaveError(error.message);
+        } finally {
+            setSaving(false);
+        }
+    };
+
     const handleLogout = () => {
         logout();
         navigate("/login");
@@ -106,12 +130,17 @@ const AccountPage = () => {
 
             <Box sx={{ maxWidth: 720, mx: "auto", px: { xs: 2, sm: 3 }, pt: 4 }}>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3 }}>
-                    <Avatar sx={{ width: 56, height: 56, bgcolor: "primary.main", fontSize: "1.5rem", fontWeight: 600 }}>
-                        {(user?.name || user?.phoneNumber || "U").toString().trim()[0]?.toUpperCase()}
+                    <Avatar
+                        src={user?.picture || undefined}
+                        imgProps={{ referrerPolicy: "no-referrer" }}
+                        alt=""
+                        sx={{ width: 56, height: 56, bgcolor: "primary.main", fontSize: "1.5rem", fontWeight: 600 }}
+                    >
+                        {(user?.name || user?.email || "U").toString().trim()[0]?.toUpperCase()}
                     </Avatar>
                     <Box sx={{ minWidth: 0 }}>
                         <Typography component="h2" variant="h3" noWrap>{user?.name || "Shopper"}</Typography>
-                        <Typography color="text.secondary">{user?.phoneNumber}</Typography>
+                        <Typography color="text.secondary" noWrap>{user?.email}</Typography>
                     </Box>
                 </Box>
 
@@ -160,12 +189,49 @@ const AccountPage = () => {
 
                 {tab === "profile" && (
                     <Box>
-                        <ProfileRow label="Full name" value={user?.name} />
-                        <ProfileRow label="Phone number" value={user?.phoneNumber} />
-                        <ProfileRow label="Email" value={user?.email} />
+                        {editing ? (
+                            <Box sx={{ py: 2, borderTop: 1, borderColor: "divider" }}>
+                                <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Full name"
+                                    value={draft.name}
+                                    onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
+                                    inputProps={{ maxLength: 50 }}
+                                    sx={{ mb: 2 }}
+                                />
+                                <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Contact number (optional)"
+                                    value={draft.phoneNumber}
+                                    onChange={(event) => setDraft((prev) => ({ ...prev, phoneNumber: event.target.value }))}
+                                    helperText="With country code, for example +919876543210. Leave empty to remove it."
+                                    inputProps={{ inputMode: "tel" }}
+                                />
+                                {saveError && <Alert severity="error" sx={{ mt: 2 }}>{saveError}</Alert>}
+                                <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
+                                    <Button variant="contained" onClick={saveProfile} disabled={saving || draft.name.trim().length < 2}>
+                                        {saving ? "Saving..." : "Save"}
+                                    </Button>
+                                    <Button onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
+                                </Box>
+                            </Box>
+                        ) : (
+                            <>
+                                <ProfileRow label="Full name" value={user?.name} />
+                                <ProfileRow label="Contact number" value={user?.phoneNumber} />
+                                <ProfileRow label="Email (from Google)" value={user?.email} />
+                            </>
+                        )}
                         <ProfileRow label="Account type" value={ROLE_LABELS[user?.role] || "Shopper"} />
                         <ProfileRow label="Receipts" value={String(receipts.length)} />
                         <Box sx={{ borderTop: 1, borderColor: "divider", pt: 3 }}>
+                            {!editing && (
+                                <Button variant="outlined" onClick={startEditing} sx={{ mr: 1 }}>
+                                    Edit profile
+                                </Button>
+                            )}
                             <Button variant="outlined" color="error" onClick={handleLogout}>
                                 Log out
                             </Button>

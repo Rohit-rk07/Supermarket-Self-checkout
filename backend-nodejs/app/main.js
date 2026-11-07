@@ -32,6 +32,14 @@ if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
     logger.warn('RAZORPAY_WEBHOOK_SECRET is not set: the payment webhook is off. Paid orders are only confirmed when the shopper\'s browser finishes, or when staff use Check payment.');
 }
 
+// Sign-in needs the Google client id; admins come from ADMIN_EMAILS
+if (!process.env.GOOGLE_CLIENT_ID) {
+    logger.warn('GOOGLE_CLIENT_ID is not set: nobody can sign in until it is added to .env (see .env.example).');
+}
+if (!process.env.ADMIN_EMAILS) {
+    logger.warn('ADMIN_EMAILS is not set: nobody can become an admin until it is added to .env (see .env.example).');
+}
+
 const app = express();
 let isReady = false;
 let isDBConnecting = false;
@@ -41,7 +49,7 @@ app.use(helmet());
 
 // Rate limiting. A shop's Wi-Fi puts every shopper behind one IP address, and one shopping trip
 // makes dozens of calls, so the limit per IP is generous. Set RATE_LIMIT_MAX to change it.
-// (The OTP routes have their own, much stricter limits.)
+// (The sign-in route has its own, stricter limit.)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: Number(process.env.RATE_LIMIT_MAX) || 1000,
@@ -133,9 +141,9 @@ app.get('/api', (req, res) => {
         "DELETE /api/v1/products/:barcode": "Delete product"
       },
       auth: {
-        "POST /api/auth/phone/send-otp": "Send OTP to phone",
-        "POST /api/auth/phone/verify-otp": "Verify OTP",
-        "POST /api/auth/complete-registration": "Complete user registration",
+        "GET /api/auth/config": "Google client id for the sign-in button",
+        "POST /api/auth/google": "Sign in with a Google ID token",
+        "POST /api/auth/logout-all": "Sign out of all devices",
         "GET /api/auth/profile": "Get user profile",
         "PUT /api/auth/profile": "Update user profile"
       },

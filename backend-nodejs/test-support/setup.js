@@ -12,6 +12,8 @@ process.env.MONGODB_URI = 'mongodb://127.0.0.1:1/never-used';
 process.env.RAZORPAY_KEY_ID = 'rzp_test_unit';
 process.env.RAZORPAY_KEY_SECRET = 'test-razorpay-secret';
 process.env.RAZORPAY_WEBHOOK_SECRET = 'test-webhook-secret';
+process.env.GOOGLE_CLIENT_ID = 'test-client-id.apps.googleusercontent.com';
+process.env.ADMIN_EMAILS = 'boss@example.com';
 process.env.LOG_TO_FILE = 'false';
 
 // The app logs every request; keep the test report readable
@@ -20,12 +22,13 @@ for (const method of ['log', 'info', 'warn', 'error']) console[method] = () => {
 const { default: app } = await import('../app/main.js');
 const { generateJWT } = await import('../app/middleware/auth.js');
 const { setRazorpayClientFactory } = await import('../app/controllers/paymentController.js');
+const { setGoogleVerifier } = await import('../app/controllers/authController.js');
 const { default: User } = await import('../app/models/User.js');
 const { default: Product } = await import('../app/models/Product.js');
 const { default: Order } = await import('../app/models/Order.js');
 const { default: Setting } = await import('../app/models/Setting.js');
 
-export { User, Product, Order, Setting, setRazorpayClientFactory };
+export { User, Product, Order, Setting, setRazorpayClientFactory, setGoogleVerifier };
 
 let mongod;
 let server;
@@ -58,6 +61,8 @@ export const makeUser = async (role = 'customer') => {
   phoneCounter += 1;
   const user = await User.create({
     phoneNumber: `+1555555${String(1000 + phoneCounter)}`,
+    email: `test${phoneCounter}@example.com`,
+    googleId: `google-test-${phoneCounter}`,
     name: `TEST ${role} ${phoneCounter}`,
     role,
     isPhoneVerified: true

@@ -42,9 +42,14 @@ const orderSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  // Shoppers sign in with Google, so the phone number is optional; the email is what identifies them
   userPhone: {
     type: String,
-    required: true
+    default: ''
+  },
+  userEmail: {
+    type: String,
+    default: ''
   },
   userName: {
     type: String,

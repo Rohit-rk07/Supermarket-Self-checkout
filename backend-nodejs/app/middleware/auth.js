@@ -1,43 +1,5 @@
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
 import User from '../models/User.js';
-
-// ---- Demo shoppers ----
-// A demo shopper has no database record. Each demo login gets its own id inside the token,
-// so visitors never see each other's basket or receipts.
-export const DEMO_ID_PREFIX = 'demo-';
-
-// The demo is available in development, or when ENABLE_PUBLIC_DEMO=true,
-// and it is never available unless Razorpay is in test mode.
-export const isDemoEnabled = () => {
-  if (process.env.NODE_ENV === 'development') return true;
-  if (process.env.ENABLE_PUBLIC_DEMO !== 'true') return false;
-  return /^rzp_test_/.test(process.env.RAZORPAY_KEY_ID || '');
-};
-
-export const isDemoUserId = (userId) =>
-  typeof userId === 'string' && userId.startsWith(DEMO_ID_PREFIX);
-
-export const buildDemoUser = (id) => {
-  // A stable fake phone number derived from the id keeps the basket and receipts consistent
-  const digits = String(parseInt(id.slice(DEMO_ID_PREFIX.length), 16) % 100000).padStart(5, '0');
-  return {
-    _id: id,
-    name: 'Demo User',
-    email: 'demo@example.com',
-    phoneNumber: `+9199990${digits}`,
-    isActive: true,
-    isPhoneVerified: true,
-    role: 'customer',
-    isDemo: true
-  };
-};
-
-export const generateDemoToken = () => {
-  const id = DEMO_ID_PREFIX + crypto.randomBytes(4).toString('hex');
-  const token = jwt.sign({ userId: id }, process.env.JWT_SECRET, { expiresIn: '12h' });
-  return { id, token };
-};
 
 // JWT Authentication Middleware
 export const authenticateJWT = async (req, res, next) => {
@@ -63,11 +25,6 @@ export const authenticateJWT = async (req, res, next) => {
     // Verify JWT token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    if (isDemoEnabled() && isDemoUserId(decoded.userId)) {
-      req.user = buildDemoUser(decoded.userId);
-      return next();
-    }
-    
     // Find user in database
     const user = await User.findById(decoded.userId);
     

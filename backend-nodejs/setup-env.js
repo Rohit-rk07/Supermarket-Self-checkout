@@ -81,7 +81,11 @@ MONGODB_URI=mongodb://localhost:27017/supermarket-checkout
 
 # JWT Configuration - SECURE RANDOM SECRET
 JWT_SECRET=${jwtSecret}
-JWT_EXPIRES_IN=7d
+JWT_EXPIRES_IN=24h
+
+# Google Sign-In (create an OAuth client ID in Google Cloud Console)
+GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
+ADMIN_EMAILS=you@gmail.com
 
 # Razorpay Configuration
 RAZORPAY_KEY_ID=your_razorpay_key_id
@@ -93,11 +97,6 @@ EMAIL_PASS=your_app_password_here
 
 # Frontend URL
 FRONTEND_URL=http://localhost:5173
-
-# Twilio SMS Configuration (Optional)
-TWILIO_ACCOUNT_SID=your_twilio_account_sid
-TWILIO_AUTH_TOKEN=your_twilio_auth_token
-TWILIO_PHONE_NUMBER=your_twilio_phone_number
 
 # Logging Configuration
 LOG_LEVEL=INFO
@@ -111,7 +110,7 @@ LOG_TO_FILE=true
     console.log('\n📋 Next steps:');
     console.log('1. Update MONGODB_URI if using a different database');
     console.log('2. Add your Razorpay credentials for payments');
-    console.log('3. Configure Twilio credentials for SMS (optional)');
+    console.log('3. Add GOOGLE_CLIENT_ID and ADMIN_EMAILS so people can sign in');
     console.log('4. Update EMAIL_USER and EMAIL_PASS for email features (optional)');
 };
 

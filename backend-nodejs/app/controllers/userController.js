@@ -5,6 +5,11 @@ import { recordAudit } from '../utils/audit.js';
 
 const ROLES = ['customer', 'staff', 'admin'];
 
+// Staff and customers are chosen here; admins are set only in the server settings (ADMIN_EMAILS)
+const ASSIGNABLE_ROLES = ['customer', 'staff'];
+
+const who = (user) => user.name || user.email || user.phoneNumber || 'this user';
+
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Admin: list registered users, optionally filtered by role or a name/phone search
@@ -14,8 +19,8 @@ export const listUsers = async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
     const { role, search } = req.query;
 
-    // Hide half-finished signups (OTP never verified)
-    const query = { isPhoneVerified: true };
+    // Hide half-finished signups from the old phone sign-in (a Google account, or a verified phone, counts as real)
+    const query = { $and: [{ $or: [{ googleId: { $exists: true } }, { isPhoneVerified: true }] }] };
 
     if (ROLES.includes(role)) {
       query.role = role;
@@ -23,7 +28,7 @@ export const listUsers = async (req, res) => {
 
     if (search && String(search).trim()) {
       const pattern = new RegExp(escapeRegex(String(search).trim().slice(0, 50)), 'i');
-      query.$or = [{ name: pattern }, { phoneNumber: pattern }];
+      query.$and.push({ $or: [{ name: pattern }, { email: pattern }, { phoneNumber: pattern }] });
     }
 
     const [users, total] = await Promise.all([
@@ -68,7 +73,7 @@ export const updateUserActive = async (req, res) => {
       userId,
       { $set: { isActive } },
       { new: true }
-    ).select('name phoneNumber role isActive');
+    ).select('name email phoneNumber role isActive');
 
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
@@ -76,11 +81,11 @@ export const updateUserActive = async (req, res) => {
 
     logger.authLog(isActive ? 'USER_REACTIVATED' : 'USER_DEACTIVATED', req.user._id, { targetUserId: userId });
     await recordAudit(req, isActive ? 'user.reactivate' : 'user.deactivate',
-      `${isActive ? 'Reactivated' : 'Deactivated'} ${user.name || user.phoneNumber} (${user.role})`, { type: 'user', id: userId });
+      `${isActive ? 'Reactivated' : 'Deactivated'} ${who(user)} (${user.role})`, { type: 'user', id: userId });
 
     res.json({
       success: true,
-      message: `${user.name || user.phoneNumber} is now ${isActive ? 'active' : 'deactivated'}`,
+      message: `${who(user)} is now ${isActive ? 'active' : 'deactivated'}`,
       data: user
     });
   } catch (error) {
@@ -89,15 +94,16 @@ export const updateUserActive = async (req, res) => {
   }
 };
 
-// Admin: change a user's role (customer, staff or admin).
-// An admin cannot change their own role, so the system can never be left without an admin.
+// Admin: make someone staff, or back to a customer.
+// Admins are never made or removed here: they come from the server's ADMIN_EMAILS setting, so the shop
+// can never be left without an admin and staff can never be promoted to admin by mistake.
 export const updateUserRole = async (req, res) => {
   try {
     const { userId } = req.params;
     const { role } = req.body;
 
-    if (!ROLES.includes(role)) {
-      return res.status(400).json({ success: false, message: 'Role must be customer, staff or admin' });
+    if (!ASSIGNABLE_ROLES.includes(role)) {
+      return res.status(400).json({ success: false, message: 'Role must be customer or staff. Admins are set in the server settings.' });
     }
 
     if (!mongoose.isValidObjectId(userId)) {
@@ -108,22 +114,26 @@ export const updateUserRole = async (req, res) => {
       return res.status(400).json({ success: false, message: 'You cannot change your own role' });
     }
 
+    const existing = await User.findById(userId).select('role');
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    if (existing.role === 'admin') {
+      return res.status(400).json({ success: false, message: 'Admins are set in the server settings (ADMIN_EMAILS) and cannot be changed here.' });
+    }
+
     const user = await User.findByIdAndUpdate(
       userId,
       { $set: { role } },
       { new: true }
-    ).select('name phoneNumber role');
-
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
+    ).select('name email phoneNumber role');
 
     logger.authLog('ROLE_CHANGED', req.user._id, { targetUserId: userId, newRole: role });
-    await recordAudit(req, 'user.role', `Made ${user.name || user.phoneNumber} ${role}`, { type: 'user', id: userId });
+    await recordAudit(req, 'user.role', `Made ${who(user)} ${role}`, { type: 'user', id: userId });
 
     res.json({
       success: true,
-      message: `${user.name || user.phoneNumber} is now ${role}`,
+      message: `${who(user)} is now ${role}`,
       data: user
     });
   } catch (error) {

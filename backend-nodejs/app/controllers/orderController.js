@@ -62,7 +62,8 @@ export const createOrder = async (req, res) => {
     }
 
     const userId = req.user._id;
-    const userPhone = req.user.phoneNumber;
+    const userPhone = req.user.phoneNumber || '';
+    const userEmail = req.user.email || '';
     const userName = req.user.name;
 
     // Validate items and calculate totals
@@ -155,6 +156,7 @@ export const createOrder = async (req, res) => {
     const order = new Order({
       userId,
       userPhone,
+      userEmail,
       userName,
       items: orderItems,
       subtotal: totals.subtotal,
@@ -364,7 +366,7 @@ export const getAllOrders = async (req, res) => {
     if (flag === 'partialRefund') query.refundedAmount = { $gt: 0 };
 
     const orders = await Order.find(query)
-      .select('orderNumber total status paymentStatus razorpayOrderId userPhone userName items createdAt paidAt exitedAt exitedByName bagCheckRequired bagChecked bagResult bagNote refundedAt refundReason refundedAmount refundLines refundFailedAt')
+      .select('orderNumber total status paymentStatus razorpayOrderId userPhone userEmail userName items createdAt paidAt exitedAt exitedByName bagCheckRequired bagChecked bagResult bagNote refundedAt refundReason refundedAmount refundLines refundFailedAt')
       .populate('userId', 'name phoneNumber')
       .populate('items.productId', 'name price category')
       .sort({ createdAt: -1 })
@@ -473,7 +475,7 @@ export const confirmExit = async (req, res) => {
         $set: {
           exitedAt: new Date(),
           exitedBy: req.user._id,
-          exitedByName: req.user.name || req.user.phoneNumber,
+          exitedByName: req.user.name || req.user.email || req.user.phoneNumber,
           bagChecked,
           ...(bagResult ? { bagResult } : {}),
           ...(bagResult === 'mismatch' ? { bagNote } : {})
@@ -569,7 +571,7 @@ export const getOrderStats = async (req, res) => {
     ]);
 
     const recentOrders = await Order.find()
-      .select('orderNumber total status userPhone userName createdAt')
+      .select('orderNumber total status userPhone userEmail userName createdAt')
       .populate('userId', 'name phoneNumber')
       .sort({ createdAt: -1 })
       .limit(5);

@@ -9,11 +9,11 @@ export const CartProvider = ({ children }) => {
     const hasFetchedCart = useRef(false); // Flag to avoid first write
     // Which storage key the current cart was loaded from (lets pages wait until it matches the user)
     const [loadedKey, setLoadedKey] = useState(null);
-    const currentKey = user ? `cart_${user.phoneNumber || user.email || user.id}` : 'cart_guest';
+    const currentKey = user ? `cart_${user.id || user.email}` : 'cart_guest';
 
     // Load cart from localStorage on mount / when user changes
     useEffect(() => {
-        const key = user ? `cart_${user.phoneNumber || user.email || user.id}` : 'cart_guest';
+        const key = user ? `cart_${user.id || user.email}` : 'cart_guest';
         try {
             const saved = localStorage.getItem(key);
             if (saved) {
@@ -28,12 +28,12 @@ export const CartProvider = ({ children }) => {
         hasFetchedCart.current = true;
         setLoadedKey(key);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user?.phoneNumber, user?.email, user?.id]);
+    }, [user?.email, user?.id]);
 
     // Persist cart to localStorage whenever it changes (after first load)
     useEffect(() => {
         if (!hasFetchedCart.current) return;
-        const key = user ? `cart_${user.phoneNumber || user.email || user.id}` : 'cart_guest';
+        const key = user ? `cart_${user.id || user.email}` : 'cart_guest';
         try {
             localStorage.setItem(key, JSON.stringify(cart));
         } catch (e) {
@@ -64,13 +64,13 @@ export const CartProvider = ({ children }) => {
         
     };
 
-    // ✅ Remove item from cart
+    // âœ… Remove item from cart
     const removeFromCart = (barcode) => {
         setCart(prevCart => prevCart.filter(item => item.barcode !== barcode));
     };
     
 
-    // ✅ Update item quantity
+    // âœ… Update item quantity
     const updateQuantity = (barcode, newQuantity) => {
         if (newQuantity < 1) return;
     
@@ -84,7 +84,7 @@ export const CartProvider = ({ children }) => {
     };
     
 
-    // ✅ Clear cart
+    // âœ… Clear cart
     const clearCart = () => {
         setCart([]);
     };

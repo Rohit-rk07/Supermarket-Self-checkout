@@ -7,7 +7,7 @@ import { validateRequest } from '../middleware/validation.js';
 const router = express.Router();
 
 const roleSchema = Joi.object({
-  role: Joi.string().valid('customer', 'staff', 'admin').required()
+  role: Joi.string().valid('customer', 'staff').required()
 });
 
 const activeSchema = Joi.object({

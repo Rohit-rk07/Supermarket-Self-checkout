@@ -25,11 +25,13 @@ const API_URL = `${import.meta.env.VITE_SERVER_URL}/api/v1/users`;
 
 const ROLE_OPTIONS = [
     { value: "customer", label: "Customer", hint: "Can scan, pay and see their own orders" },
-    { value: "staff", label: "Staff", hint: "Can also verify receipts at the exit and view all orders" },
-    { value: "admin", label: "Admin", hint: "Can also manage products and staff roles" }
+    { value: "staff", label: "Staff", hint: "Can also verify receipts at the exit and view all orders" }
 ];
 
-const roleLabel = (value) => ROLE_OPTIONS.find((option) => option.value === value)?.label || value;
+// Admins are set on the server (ADMIN_EMAILS), so they can be filtered and shown but not chosen here
+const FILTER_OPTIONS = [...ROLE_OPTIONS, { value: "admin", label: "Admin" }];
+
+const roleLabel = (value) => FILTER_OPTIONS.find((option) => option.value === value)?.label || value;
 
 const getMessage = (data) => data?.message || data?.details || data?.error || "Something went wrong";
 
@@ -159,13 +161,16 @@ const AdminUsersPage = () => {
             )
         },
         {
-            label: "Phone",
-            render: (person) => <span style={{ fontFamily: "monospace" }}>{person.phoneNumber}</span>
+            label: "Email",
+            render: (person) => <span style={{ wordBreak: "break-all" }}>{person.email}</span>
         },
         {
             label: "Role",
             render: (person) => {
                 const isMe = String(person._id) === myId;
+                if (person.role === "admin") {
+                    return <Chip size="small" label="Admin" />;
+                }
                 return (
                     <Tooltip title={isMe ? "You cannot change your own role" : ""}>
                         <span>
@@ -174,7 +179,7 @@ const AdminUsersPage = () => {
                                 size="small"
                                 value={person.role}
                                 disabled={isMe}
-                                inputProps={{ "aria-label": `Role for ${person.name || person.phoneNumber}` }}
+                                inputProps={{ "aria-label": `Role for ${person.name || person.email}` }}
                                 onChange={(event) => {
                                     if (event.target.value !== person.role) {
                                         setPendingChange({ target: person, role: event.target.value });
@@ -225,13 +230,13 @@ const AdminUsersPage = () => {
 
             <Box sx={{ maxWidth: 1040, mx: "auto", px: { xs: 2, sm: 3 }, pt: 3, pb: 8 }}>
                 <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 640 }}>
-                    New staff sign in with their own phone number first. Then find them here and give them the Staff role. Changes apply the next time they open the app.
+                    New staff sign in with their own Google account first. Then find them here and give them the Staff role. Admins are set by the server setting ADMIN_EMAILS. Changes apply the next time they open the app.
                 </Typography>
 
                 <Box sx={{ display: "flex", gap: 1, mb: 2, flexWrap: "wrap" }}>
                     <TextField
                         size="small"
-                        label="Search name or phone"
+                        label="Search name or email"
                         value={searchInput}
                         onChange={(event) => setSearchInput(event.target.value)}
                         onKeyDown={(event) => { if (event.key === "Enter") runSearch(); }}
@@ -247,7 +252,7 @@ const AdminUsersPage = () => {
                         sx={{ minWidth: 150 }}
                     >
                         <MenuItem value="">All roles</MenuItem>
-                        {ROLE_OPTIONS.map((option) => (
+                        {FILTER_OPTIONS.map((option) => (
                             <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
                         ))}
                     </TextField>
@@ -281,7 +286,7 @@ const AdminUsersPage = () => {
                 <DialogTitle>Change role?</DialogTitle>
                 <DialogContent>
                     <Typography gutterBottom>
-                        {pendingChange?.target.name || pendingChange?.target.phoneNumber}: {roleLabel(pendingChange?.target.role)} {"→"} <strong>{roleLabel(pendingChange?.role)}</strong>
+                        {pendingChange?.target.name || pendingChange?.target.email}: {roleLabel(pendingChange?.target.role)} {"→"} <strong>{roleLabel(pendingChange?.role)}</strong>
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                         {ROLE_OPTIONS.find((option) => option.value === pendingChange?.role)?.hint}
@@ -300,7 +305,7 @@ const AdminUsersPage = () => {
                 <DialogTitle>Deactivate this account?</DialogTitle>
                 <DialogContent>
                     <Typography gutterBottom>
-                        {pendingDeactivate?.name || pendingDeactivate?.phoneNumber} will be signed out and cannot sign in again until you reactivate them.
+                        {pendingDeactivate?.name || pendingDeactivate?.email} will be signed out and cannot sign in again until you reactivate them.
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                         Nothing is deleted: their orders and the exits they confirmed stay in the history.

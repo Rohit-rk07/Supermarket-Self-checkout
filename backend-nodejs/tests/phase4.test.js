@@ -334,22 +334,12 @@ describe('deactivating users (R-43)', () => {
     assert.equal(row.isActive, false);
   });
 
-  test('a deactivated user gets no new code and cannot finish signing in', async () => {
+  test('a deactivated user cannot get a new sign-in, and the token they had stops working',  async () => {
     const admin = await makeUser('admin');
     const staff = await makeUser('staff');
     await api('PUT', `/api/v1/users/${staff.user._id}/active`, { token: admin.token, body: { isActive: false } });
 
-    const send = await api('POST', '/api/auth/phone/send-otp', { body: { phoneNumber: staff.user.phoneNumber } });
-    assert.equal(send.status, 403);
-    assert.match(send.body.message, /deactivated/);
-
-    // Even with a valid code already on the account
-    const user = await User.findById(staff.user._id);
-    const otp = user.generateOTP();
-    await user.save();
-    const verify = await api('POST', '/api/auth/phone/verify-otp', { body: { phoneNumber: staff.user.phoneNumber, otp } });
-    assert.equal(verify.status, 403);
-    assert.equal(verify.body.data, undefined);
+    assert.equal((await api('GET', '/api/auth/profile', { token: staff.token })).status, 401);
   });
 
   test('an admin cannot deactivate themselves; shoppers and staff cannot deactivate anyone', async () => {

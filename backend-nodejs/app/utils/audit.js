@@ -8,7 +8,7 @@ export const recordAudit = async (req, action, summary, target = {}) => {
     await AuditLog.create({
       action,
       actorId: req.user?._id,
-      actorName: req.user?.name || req.user?.phoneNumber || 'Unknown',
+      actorName: req.user?.name || req.user?.email || req.user?.phoneNumber || 'Unknown',
       targetType: target.type,
       targetId: target.id !== undefined ? String(target.id) : undefined,
       summary: String(summary).slice(0, 300)
