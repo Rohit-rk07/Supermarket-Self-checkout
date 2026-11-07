@@ -33,8 +33,8 @@ const ShopperHome = ({ onBackToDesk }) => {
   const navigate = useNavigate();
   const firstName = (user?.name || "").trim().split(" ")[0];
 
-  // Only paid orders are receipts
-  const receipts = (orders || []).filter((order) => order.paymentStatus === "paid").slice(0, 2);
+  // Paid and refunded orders are receipts (a refunded one is marked so)
+  const receipts = (orders || []).filter((order) => order.paymentStatus === "paid" || order.paymentStatus === "refunded").slice(0, 2);
 
   // Look a barcode up on the server and put the product in the basket
   const addByBarcode = async (raw) => {
@@ -161,7 +161,9 @@ const ShopperHome = ({ onBackToDesk }) => {
               >
                 <Box sx={{ minWidth: 0 }}>
                   <Typography fontWeight={600} sx={{ fontFamily: "monospace" }} noWrap>{order.orderNumber}</Typography>
-                  <Typography variant="body2" color="text.secondary">{formatDateTime(order.paidAt || order.createdAt)}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {formatDateTime(order.paidAt || order.createdAt)}{order.paymentStatus === "refunded" ? " · Refunded" : ""}
+                  </Typography>
                 </Box>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                   <Money value={getTotals(order).total} sx={{ fontWeight: 600 }} />

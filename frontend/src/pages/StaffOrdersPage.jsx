@@ -153,6 +153,30 @@ const StaffOrdersPage = () => {
         .map(([barcode, quantity]) => ({ barcode, quantity: Number(quantity) || 0 }))
         .filter((entry) => entry.quantity > 0);
 
+    // Ask the server what this refund comes to (tax included) so the exact amount shows before the button is pressed
+    const [refundPreview, setRefundPreview] = useState(null);
+    const chosenKey = JSON.stringify(chosenItems);
+    useEffect(() => {
+        setRefundPreview(null);
+        if (!refundTarget || (!refundAll && chosenItems.length === 0)) return undefined;
+        let cancelled = false;
+        (async () => {
+            try {
+                const response = await fetch(`${API_URL}/${refundTarget._id}/refund`, {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({ dryRun: true, ...(refundAll ? {} : { items: chosenItems }) })
+                });
+                const data = await response.json();
+                if (!cancelled) setRefundPreview(response.ok ? { amount: data.data.amount } : { error: data.message || "Could not work out the amount" });
+            } catch {
+                if (!cancelled) setRefundPreview({ error: "Could not work out the amount" });
+            }
+        })();
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [refundTarget, refundAll, chosenKey, token]);
+
     const refund = async () => {
         if (!refundTarget) return;
         setRefunding(true);
@@ -428,6 +452,12 @@ const StaffOrdersPage = () => {
                                     This shopper has already left the shop with these items.
                                 </Alert>
                             )}
+                            {refundPreview?.amount != null && (
+                                <Typography sx={{ mb: 2, fontWeight: 600 }}>
+                                    You will refund <Money value={refundPreview.amount} /> (tax included)
+                                </Typography>
+                            )}
+                            {refundPreview?.error && <Alert severity="error" sx={{ mb: 2 }}>{refundPreview.error}</Alert>}
                             <TextField
                                 fullWidth
                                 size="small"
@@ -441,7 +471,7 @@ const StaffOrdersPage = () => {
                 </DialogContent>
                 <DialogActions sx={{ px: 3, pb: 2 }}>
                     <Button onClick={() => setRefundTarget(null)} disabled={refunding}>Cancel</Button>
-                    <Button variant="contained" color="error" onClick={refund} disabled={refunding || (!refundAll && chosenItems.length === 0)}>
+                    <Button variant="contained" color="error" onClick={refund} disabled={refunding || !refundPreview?.amount}>
                         {refunding ? "Refunding..." : refundAll ? "Refund everything left" : "Refund chosen items"}
                     </Button>
                 </DialogActions>

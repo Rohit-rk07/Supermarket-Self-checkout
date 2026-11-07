@@ -43,6 +43,8 @@ const bagCheckSettingSchema = Joi.object({
 
 const refundSchema = Joi.object({
   reason: Joi.string().trim().max(200).allow('').optional(),
+  // true = only work out the amount, do not refund
+  dryRun: Joi.boolean().optional(),
   // Leave out to refund everything that is left; or list what to hand back
   items: Joi.array().items(
     Joi.object({

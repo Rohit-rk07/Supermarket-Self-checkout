@@ -466,13 +466,18 @@ export const refundOrder = async (req, res, next) => {
     if (!order.razorpayPaymentId) {
       return res.status(400).json({ success: false, message: 'No Razorpay payment is recorded for this order, so it cannot be refunded here' });
     }
-    if (!hasValidCredentials()) {
-      return res.status(500).json({ success: false, message: 'Payment service not configured' });
-    }
-
     const plan = planRefund(order, req.body?.items);
     if (plan.error) {
       return res.status(400).json({ success: false, message: plan.error });
+    }
+
+    // Preview only: tell the admin the exact amount before anything is sent to Razorpay
+    if (req.body?.dryRun) {
+      return res.json({ success: true, data: { amount: plan.amount } });
+    }
+
+    if (!hasValidCredentials()) {
+      return res.status(500).json({ success: false, message: 'Payment service not configured' });
     }
 
     // Claim the refund so two admins pressing the button together cannot refund twice
