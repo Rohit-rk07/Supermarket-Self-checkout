@@ -22,11 +22,12 @@ const PAYMENT_FILTERS = [
     { value: "refunded", label: "Refunded" },
     { value: "partialRefund", label: "Part-refunded" },
     { value: "refundFailed", label: "Refund failed (needs action)" },
+    { value: "exitHeld", label: "Exit on hold (needs an admin)" },
     { value: "bagMismatch", label: "Bag check mismatch" }
 ];
 
 // Filters that are not a payment status are sent as a "flag"
-const FLAGS = ["partialRefund", "refundFailed", "bagMismatch"];
+const FLAGS = ["partialRefund", "refundFailed", "bagMismatch", "exitHeld"];
 
 // What can still be refunded on an order: [{ barcode, name, left }]
 const refundableLines = (order) => {

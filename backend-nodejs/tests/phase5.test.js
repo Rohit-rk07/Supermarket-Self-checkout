@@ -246,15 +246,46 @@ describe('bag-check result (item 12)', () => {
 
     const ok = await exit(staff, order, { bagChecked: true, bagResult: 'mismatch', bagNote: '  2 extra bottles in the bag  ' });
     assert.equal(ok.status, 200);
+    assert.equal(ok.body.result, 'HELD');
     const saved = await Order.findById(order._id);
     assert.equal(saved.bagResult, 'mismatch');
     assert.equal(saved.bagNote, '2 extra bottles in the bag');
+    // The exit is held, not confirmed
+    assert.equal(saved.exitedAt, undefined);
+    assert.ok(saved.exitHeldAt);
 
     const list = await api('GET', '/api/v1/orders/all?flag=bagMismatch', { token: staff.token });
     assert.equal(list.body.data.orders.length, 1);
     assert.equal(list.body.data.orders[0].bagNote, '2 extra bottles in the bag');
     const stats = await api('GET', '/api/v1/orders/stats', { token: admin.token });
     assert.equal(stats.body.data.today.bagMismatches, 1);
+  });
+
+  test('a held exit stays held for staff and only an admin can release it', async () => {
+    await setBagPercent(100);
+    const { staff, admin, order } = await paidMixedOrder();
+    await exit(staff, order, { bagChecked: true, bagResult: 'mismatch', bagNote: 'Extra item' });
+
+    const again = await exit(staff, order, { bagChecked: true });
+    assert.equal(again.status, 409);
+    assert.equal(again.body.result, 'HELD');
+    const view = await api('GET', `/api/v1/orders/verify/${order.orderNumber}`, { token: staff.token });
+    assert.equal(view.body.result, 'HELD');
+
+    const byStaff = await api('POST', `/api/v1/orders/verify/${order.orderNumber}/release`, { token: staff.token });
+    assert.equal(byStaff.status, 403);
+    assert.equal((await Order.findById(order._id)).exitedAt, undefined);
+
+    const released = await api('POST', `/api/v1/orders/verify/${order.orderNumber}/release`, { token: admin.token });
+    assert.equal(released.status, 200);
+    const goes = await exit(staff, order, {});
+    assert.equal(goes.status, 200);
+    const saved = await Order.findById(order._id);
+    assert.ok(saved.exitedAt);
+    assert.equal(saved.bagResult, 'mismatch');
+
+    const twice = await api('POST', `/api/v1/orders/verify/${order.orderNumber}/release`, { token: admin.token });
+    assert.equal(twice.status, 404);
   });
 
   test('the shopper never sees the bag result or note', async () => {

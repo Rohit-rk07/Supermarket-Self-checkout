@@ -9,6 +9,7 @@ import {
   getOrderStats,
   verifyReceipt,
   confirmExit,
+  releaseExitHold,
   getBagCheckSetting,
   updateBagCheckSetting
 } from '../controllers/orderController.js';
@@ -60,6 +61,8 @@ router.get('/my-orders', authenticateJWT, getUserOrders);
 // Exit verification (staff and admin). Declared before '/:orderId' routes.
 router.get('/verify/:orderNumber', authenticateJWT, authorize('admin', 'staff'), verifyReceipt);
 router.post('/verify/:orderNumber/exit', authenticateJWT, authorize('admin', 'staff'), confirmExit);
+// Admin only: a bag-check mismatch holds the exit until an admin lets the shopper go
+router.post('/verify/:orderNumber/release', authenticateJWT, authorize('admin'), releaseExitHold);
 router.get('/stats', authenticateJWT, authorize('admin', 'staff'), getOrderStats);
 // Share of paid orders picked for a bag check at the exit (admin changes it)
 router.get('/settings/bag-check', authenticateJWT, authorize('admin', 'staff'), getBagCheckSetting);

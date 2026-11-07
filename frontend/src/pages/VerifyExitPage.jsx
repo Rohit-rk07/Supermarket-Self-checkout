@@ -15,6 +15,7 @@ const API_URL = `${import.meta.env.VITE_SERVER_URL}/api/v1/orders`;
 const VERDICTS = {
     PAID: { label: "PAID", hint: "Payment confirmed. Check the items, then confirm exit.", ...tokens.success },
     EXIT_CONFIRMED: { label: "EXIT CONFIRMED", hint: "Recorded. This receipt cannot be used again.", ...tokens.success },
+    HELD: { label: "EXIT ON HOLD", hint: "The bag did not match the list. Do not let the shopper leave until an admin releases it.", ...tokens.danger },
     ALREADY_EXITED: { label: "ALREADY USED", hint: "This receipt was already used to leave the store.", ...tokens.warning },
     NOT_PAID: { label: "NOT PAID", hint: "Do not let the shopper leave. Send them back to pay.", ...tokens.danger },
     CANCELLED: { label: "CANCELLED", hint: "This order was cancelled and is not valid.", ...tokens.danger },
@@ -93,7 +94,9 @@ const VerifyExitPage = () => {
             });
             const data = await response.json();
 
-            if (response.ok) {
+            if (response.ok && data.result === "HELD") {
+                setVerdict({ result: "HELD", order: verdict.order, message: data.message });
+            } else if (response.ok) {
                 setVerdict({ result: "EXIT_CONFIRMED", order: verdict.order });
             } else if (data.result === "BAG_CHECK_REQUIRED") {
                 // Stay on the receipt: staff just need to look in the bag and say what they found
@@ -105,6 +108,25 @@ const VerifyExitPage = () => {
             }
         } catch (error) {
             setVerdict({ result: "ERROR", order: verdict.order, message: error.message });
+        } finally {
+            setConfirming(false);
+        }
+    };
+
+    // Admin only: let a held shopper go. Staff then confirm the exit as usual.
+    const releaseHold = async () => {
+        if (!verdict?.order) return;
+        setConfirming(true);
+        try {
+            const response = await fetch(`${API_URL}/verify/${encodeURIComponent(verdict.order.orderNumber)}/release`, {
+                method: "POST",
+                headers: authHeaders()
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || "Could not release the hold");
+            setVerdict({ result: "PAID", order: verdict.order, bagCheckRequired: false, message: data.message });
+        } catch (error) {
+            setVerdict({ ...verdict, message: error.message });
         } finally {
             setConfirming(false);
         }
@@ -200,6 +222,21 @@ const VerifyExitPage = () => {
                             )}
                         </Box>
 
+                        {verdict.result === "HELD" && (
+                            <Box sx={{ mt: 2 }}>
+                                {order?.bagNote && (
+                                    <Typography sx={{ mb: 1.5 }}>Note: {order.bagNote}</Typography>
+                                )}
+                                {user?.role === "admin" ? (
+                                    <Button variant="contained" size="large" onClick={releaseHold} disabled={confirming}>
+                                        {confirming ? "Releasing..." : "Release the hold"}
+                                    </Button>
+                                ) : (
+                                    <Typography color="text.secondary">Call an admin to release this one.</Typography>
+                                )}
+                            </Box>
+                        )}
+
                         {/* Picked for a random bag check: staff must look in the bag and tick before confirming */}
                         {verdict.result === "PAID" && verdict.bagCheckRequired && (
                             <Box
@@ -214,7 +251,7 @@ const VerifyExitPage = () => {
                                 </Typography>
                                 <RadioGroup value={bagResult} onChange={(event) => setBagResult(event.target.value)} sx={{ mt: 1 }}>
                                     <FormControlLabel value="matched" control={<Radio />} label="Matched: the bag has what the list says" />
-                                    <FormControlLabel value="mismatch" control={<Radio />} label="Mismatch found" />
+                                    <FormControlLabel value="mismatch" control={<Radio />} label="Mismatch found (holds the exit until an admin releases it)" />
                                 </RadioGroup>
                                 {bagResult === "mismatch" && (
                                     <TextField

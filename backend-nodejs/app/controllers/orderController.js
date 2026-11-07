@@ -363,10 +363,11 @@ export const getAllOrders = async (req, res) => {
     // Orders that need someone's attention
     if (flag === 'refundFailed') query.refundFailedAt = { $exists: true };
     if (flag === 'bagMismatch') query.bagResult = 'mismatch';
+    if (flag === 'exitHeld') query.exitHeldAt = { $ne: null, $exists: true };
     if (flag === 'partialRefund') query.refundedAmount = { $gt: 0 };
 
     const orders = await Order.find(query)
-      .select('orderNumber total status paymentStatus razorpayOrderId userPhone userEmail userName items createdAt paidAt exitedAt exitedByName bagCheckRequired bagChecked bagResult bagNote refundedAt refundReason refundedAmount refundLines refundFailedAt')
+      .select('orderNumber total status paymentStatus razorpayOrderId userPhone userEmail userName items createdAt paidAt exitedAt exitHeldAt exitedByName bagCheckRequired bagChecked bagResult bagNote refundedAt refundReason refundedAmount refundLines refundFailedAt')
       .populate('userId', 'name phoneNumber')
       .populate('items.productId', 'name price category')
       .sort({ createdAt: -1 })
@@ -397,13 +398,13 @@ export const getAllOrders = async (req, res) => {
 };
 
 // Staff: look up an order by the receipt number in its QR code (read only).
-// result is one of PAID, NOT_PAID, ALREADY_EXITED, CANCELLED, so the UI can show a clear verdict.
+// result is one of PAID, NOT_PAID, ALREADY_EXITED, CANCELLED, REFUNDED, HELD, so the UI can show a clear verdict.
 export const verifyReceipt = async (req, res) => {
   try {
     const orderNumber = String(req.params.orderNumber || '').trim().toUpperCase();
 
     let order = await Order.findOne({ orderNumber })
-      .select('orderNumber items subtotal tax total status paymentStatus paidAt exitedAt exitedByName bagCheckRequired bagChecked bagResult bagNote refundedAmount refundLines createdAt userName')
+      .select('orderNumber items subtotal tax total status paymentStatus paidAt exitedAt exitHeldAt exitedByName bagCheckRequired bagChecked bagResult bagNote refundedAmount refundLines createdAt userName')
       .lean();
 
     if (!order) {
@@ -423,6 +424,8 @@ export const verifyReceipt = async (req, res) => {
       result = 'NOT_PAID';
     } else if (order.exitedAt) {
       result = 'ALREADY_EXITED';
+    } else if (order.exitHeldAt) {
+      result = 'HELD';
     } else {
       order = await ensureBagCheckFlag(order);
     }
@@ -469,20 +472,33 @@ export const confirmExit = async (req, res) => {
         paymentStatus: 'paid',
         status: { $ne: 'cancelled' },
         exitedAt: null,
+        exitHeldAt: null,
         ...(bagChecked ? {} : { bagCheckRequired: { $ne: true } })
       },
       {
-        $set: {
-          exitedAt: new Date(),
-          exitedBy: req.user._id,
-          exitedByName: req.user.name || req.user.email || req.user.phoneNumber,
-          bagChecked,
-          ...(bagResult ? { bagResult } : {}),
-          ...(bagResult === 'mismatch' ? { bagNote } : {})
-        }
+        $set: bagResult === 'mismatch'
+          // A mismatch holds the exit: the shopper stays until an admin releases it
+          ? { exitHeldAt: new Date(), exitedBy: req.user._id, exitedByName: req.user.name || req.user.email, bagChecked, bagResult, bagNote }
+          : {
+            exitedAt: new Date(),
+            exitedBy: req.user._id,
+            exitedByName: req.user.name || req.user.email || req.user.phoneNumber,
+            bagChecked,
+            ...(bagResult ? { bagResult } : {})
+          }
       },
       { new: true }
-    ).select('orderNumber total exitedAt exitedByName bagChecked bagResult').lean();
+    ).select('orderNumber total exitedAt exitHeldAt exitedByName bagChecked bagResult').lean();
+
+    if (order && order.exitHeldAt && !order.exitedAt) {
+      await recordAudit(req, 'order.exithold', `Held the exit of ${order.orderNumber}: ${bagNote}`, { type: 'order', id: order._id });
+      return res.status(200).json({
+        success: true,
+        result: 'HELD',
+        message: 'Exit held. Ask an admin to release it.',
+        data: order
+      });
+    }
 
     if (order) {
       return res.json({
@@ -494,7 +510,7 @@ export const confirmExit = async (req, res) => {
 
     // Not updated: work out why so staff get a clear message
     const existing = await Order.findOne({ orderNumber })
-      .select('paymentStatus status exitedAt bagCheckRequired')
+      .select('paymentStatus status exitedAt exitHeldAt bagCheckRequired')
       .lean();
 
     if (!existing) {
@@ -509,6 +525,9 @@ export const confirmExit = async (req, res) => {
     if (existing.status === 'cancelled') {
       return res.status(400).json({ success: false, result: 'CANCELLED', message: 'This order was cancelled' });
     }
+    if (existing.exitHeldAt) {
+      return res.status(409).json({ success: false, result: 'HELD', message: 'This exit is on hold after a bag-check mismatch. An admin has to release it.' });
+    }
     if (existing.paymentStatus === 'paid' && existing.bagCheckRequired === true && !bagChecked) {
       return res.status(400).json({ success: false, result: 'BAG_CHECK_REQUIRED', message: 'This bag was picked for a check. Look in the bag, then tick the box.' });
     }
@@ -519,6 +538,29 @@ export const confirmExit = async (req, res) => {
       success: false,
       message: 'Failed to confirm exit'
     });
+  }
+};
+
+// Admin: let a held shopper go. The mismatch stays recorded on the order; staff then confirm the exit as normal.
+export const releaseExitHold = async (req, res) => {
+  try {
+    const orderNumber = String(req.params.orderNumber || '').trim().toUpperCase();
+    const order = await Order.findOneAndUpdate(
+      { orderNumber, exitedAt: null, exitHeldAt: { $ne: null } },
+      {
+        $set: { exitReleasedAt: new Date(), exitReleasedByName: req.user.name || req.user.email, bagCheckRequired: false },
+        $unset: { exitHeldAt: 1 }
+      },
+      { new: true }
+    ).select('orderNumber').lean();
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'This order has no exit hold to release' });
+    }
+    await recordAudit(req, 'order.exitrelease', `Released the exit hold on ${order.orderNumber}`, { type: 'order', id: order._id });
+    res.json({ success: true, message: `Exit released for ${order.orderNumber}. Staff can now confirm it.` });
+  } catch (error) {
+    console.error('Release exit hold error:', error);
+    res.status(500).json({ success: false, message: 'Failed to release the hold' });
   }
 };
 
@@ -566,8 +608,9 @@ export const getOrderStats = async (req, res) => {
       ]),
       Product.countDocuments({ isActive: true, trackStock: true, stock: { $lte: LOW_STOCK_LEVEL } }),
       Order.countDocuments({ refundFailedAt: { $exists: true } }),
-      Order.countDocuments({ exitedAt: { $gte: since }, bagChecked: true }),
-      Order.countDocuments({ exitedAt: { $gte: since }, bagResult: 'mismatch' })
+      Order.countDocuments({ $or: [{ exitedAt: { $gte: since } }, { exitHeldAt: { $gte: since } }], bagChecked: true }),
+      // A held exit counts now; once released, it counts on the day the shopper leaves
+    Order.countDocuments({ $or: [{ exitedAt: { $gte: since } }, { exitHeldAt: { $gte: since } }], bagResult: 'mismatch' })
     ]);
 
     const recentOrders = await Order.find()

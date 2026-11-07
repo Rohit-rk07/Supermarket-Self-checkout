@@ -101,6 +101,9 @@ const orderSchema = new mongoose.Schema({
   bagChecked: Boolean, // staff ticked that they checked the bag when confirming the exit
   bagResult: { type: String, enum: ['matched', 'mismatch'] }, // what staff found when they looked in the bag
   bagNote: String, // what did not match (required with a mismatch)
+  exitHeldAt: Date, // a bag-check mismatch holds the exit until an admin releases it
+  exitReleasedAt: Date,
+  exitReleasedByName: String,
   // Refund (R-23)
   refundRequestedAt: Date, // set while a refund is being made, so two admins cannot refund twice
   refundId: String,
