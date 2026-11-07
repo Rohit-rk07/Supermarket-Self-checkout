@@ -18,40 +18,30 @@ export const tokens = {
   danger: { fg: '#A5231D', bg: '#F9DEDB' },
 };
 
+// Dark mode tokens
+export const darkTokens = {
+  paper: '#1A1F1C',
+  surface: '#242A26',
+  ink: '#F2F4EF',
+  inkSoft: '#B8C4BC',
+  line: '#3A443D',
+  forest: '#4CAF50',
+  forestDark: '#388E3C',
+  forestTint: '#1B3326',
+  brass: '#FFB74D',
+  success: { fg: '#81C784', bg: '#1B3326' },
+  warning: { fg: '#FFB74D', bg: '#332614' },
+  danger: { fg: '#E57373', bg: '#261414' },
+};
+
 export const fonts = {
   serif: '"Libre Caslon Text", Georgia, "Times New Roman", serif',
   sans: '"Hanken Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   receipt: '"Courier Prime", "Courier New", monospace',
 };
 
-export const theme = createTheme({
-  palette: {
-    mode: 'light',
-    primary: {
-      main: tokens.forest,
-      dark: tokens.forestDark,
-      light: '#2F6B52',
-      contrastText: '#FFFFFF',
-    },
-    secondary: {
-      main: tokens.brass,
-      contrastText: '#FFFFFF',
-    },
-    background: {
-      default: tokens.paper,
-      paper: tokens.surface,
-    },
-    text: {
-      primary: tokens.ink,
-      secondary: tokens.inkSoft,
-    },
-    divider: tokens.line,
-    success: { main: tokens.success.fg, contrastText: '#FFFFFF' },
-    warning: { main: tokens.warning.fg, contrastText: '#FFFFFF' },
-    error: { main: tokens.danger.fg, contrastText: '#FFFFFF' },
-    info: { main: tokens.forest, contrastText: '#FFFFFF' },
-  },
-
+const createSharedTheme = (palette) => ({
+  palette,
   typography: {
     fontFamily: fonts.sans,
     // Headlines are serif; everything you tap is sans
@@ -75,7 +65,7 @@ export const theme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: {
-        body: { backgroundColor: tokens.paper },
+        body: { backgroundColor: palette.background.default },
       },
     },
 
@@ -92,28 +82,28 @@ export const theme = createTheme({
         sizeLarge: { minHeight: 52, padding: '12px 24px', fontSize: '1rem' },
         sizeSmall: { minHeight: 36, padding: '6px 14px' },
         containedPrimary: {
-          '&:hover': { backgroundColor: tokens.forestDark },
-          '&.Mui-disabled': { backgroundColor: alpha(tokens.forest, 0.28), color: '#FFFFFF' },
+          '&:hover': { backgroundColor: palette.primary.dark },
+          '&.Mui-disabled': { backgroundColor: alpha(palette.primary.main, 0.28), color: '#FFFFFF' },
         },
         outlined: {
-          borderColor: alpha(tokens.ink, 0.35),
-          color: tokens.ink,
-          '&:hover': { borderColor: tokens.ink, backgroundColor: alpha(tokens.ink, 0.04) },
+          borderColor: alpha(palette.text.primary, 0.35),
+          color: palette.text.primary,
+          '&:hover': { borderColor: palette.text.primary, backgroundColor: alpha(palette.text.primary, 0.04) },
         },
         outlinedPrimary: {
-          borderColor: tokens.forest,
-          color: tokens.forest,
-          '&:hover': { borderColor: tokens.forestDark, backgroundColor: tokens.forestTint },
+          borderColor: palette.primary.main,
+          color: palette.primary.main,
+          '&:hover': { borderColor: palette.primary.dark, backgroundColor: alpha(palette.primary.main, 0.08) },
         },
         text: {
-          '&:hover': { backgroundColor: alpha(tokens.ink, 0.05) },
+          '&:hover': { backgroundColor: alpha(palette.text.primary, 0.05) },
         },
       },
     },
 
     MuiIconButton: {
       styleOverrides: {
-        root: { '&:hover': { backgroundColor: alpha(tokens.ink, 0.06) } },
+        root: { '&:hover': { backgroundColor: alpha(palette.text.primary, 0.06) } },
       },
     },
 
@@ -125,11 +115,11 @@ export const theme = createTheme({
       styleOverrides: {
         root: {
           borderRadius: 6,
-          backgroundColor: tokens.surface,
-          '& .MuiOutlinedInput-notchedOutline': { borderColor: tokens.line },
-          '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: tokens.inkSoft },
-          '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: tokens.forest, borderWidth: 2 },
-          '&.Mui-error .MuiOutlinedInput-notchedOutline': { borderColor: tokens.danger.fg },
+          backgroundColor: palette.background.paper,
+          '& .MuiOutlinedInput-notchedOutline': { borderColor: palette.divider },
+          '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: palette.text.secondary },
+          '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: palette.primary.main, borderWidth: 2 },
+          '&.Mui-error .MuiOutlinedInput-notchedOutline': { borderColor: palette.error.main },
         },
         input: { padding: '13px 14px' },
       },
@@ -137,7 +127,7 @@ export const theme = createTheme({
 
     MuiInputLabel: {
       styleOverrides: {
-        root: { color: tokens.inkSoft, '&.Mui-focused': { color: tokens.forest } },
+        root: { color: palette.text.secondary, '&.Mui-focused': { color: palette.primary.main } },
       },
     },
 
@@ -145,7 +135,7 @@ export const theme = createTheme({
       defaultProps: { elevation: 0 },
       styleOverrides: {
         root: { backgroundImage: 'none' },
-        outlined: { borderColor: tokens.line },
+        outlined: { borderColor: palette.divider },
       },
     },
 
@@ -164,30 +154,30 @@ export const theme = createTheme({
     MuiChip: {
       styleOverrides: {
         root: { borderRadius: 999, fontWeight: 600, fontSize: '0.75rem', height: 26 },
-        filled: { backgroundColor: tokens.forestTint, color: tokens.forest },
+        filled: { backgroundColor: alpha(palette.primary.main, 0.12), color: palette.primary.main },
       },
     },
 
     MuiAlert: {
       styleOverrides: {
         root: { borderRadius: 6, alignItems: 'center' },
-        standardError: { backgroundColor: tokens.danger.bg, color: tokens.danger.fg },
-        standardSuccess: { backgroundColor: tokens.success.bg, color: tokens.success.fg },
-        standardWarning: { backgroundColor: tokens.warning.bg, color: tokens.warning.fg },
-        standardInfo: { backgroundColor: tokens.forestTint, color: tokens.forest },
+        standardError: { backgroundColor: palette.error.bg, color: palette.error.main },
+        standardSuccess: { backgroundColor: palette.success.bg, color: palette.success.main },
+        standardWarning: { backgroundColor: palette.warning.bg, color: palette.warning.main },
+        standardInfo: { backgroundColor: alpha(palette.primary.main, 0.12), color: palette.primary.main },
       },
     },
 
     MuiTableCell: {
       styleOverrides: {
-        root: { borderBottomColor: tokens.line },
-        head: { color: tokens.inkSoft, fontWeight: 600, fontSize: '0.8125rem' },
+        root: { borderBottomColor: palette.divider },
+        head: { color: palette.text.secondary, fontWeight: 600, fontSize: '0.8125rem' },
       },
     },
 
     MuiTabs: {
       styleOverrides: {
-        indicator: { height: 3, backgroundColor: tokens.forest },
+        indicator: { height: 3, backgroundColor: palette.primary.main },
       },
     },
 
@@ -198,21 +188,21 @@ export const theme = createTheme({
           fontWeight: 600,
           fontSize: '0.9375rem',
           minHeight: 48,
-          color: tokens.inkSoft,
-          '&.Mui-selected': { color: tokens.ink },
+          color: palette.text.secondary,
+          '&.Mui-selected': { color: palette.text.primary },
         },
       },
     },
 
     MuiTooltip: {
       styleOverrides: {
-        tooltip: { backgroundColor: tokens.ink, fontSize: '0.75rem' },
+        tooltip: { backgroundColor: palette.text.primary, fontSize: '0.75rem' },
       },
     },
 
     MuiDivider: {
       styleOverrides: {
-        root: { borderColor: tokens.line },
+        root: { borderColor: palette.divider },
       },
     },
     // On a phone the pager keeps only the range and the two arrows, so it never runs off the screen
@@ -231,6 +221,60 @@ export const theme = createTheme({
     },
   },
 });
+
+export const theme = createTheme(createSharedTheme({
+  mode: 'light',
+  primary: {
+    main: tokens.forest,
+    dark: tokens.forestDark,
+    light: '#2F6B52',
+    contrastText: '#FFFFFF',
+  },
+  secondary: {
+    main: tokens.brass,
+    contrastText: '#FFFFFF',
+  },
+  background: {
+    default: tokens.paper,
+    paper: tokens.surface,
+  },
+  text: {
+    primary: tokens.ink,
+    secondary: tokens.inkSoft,
+  },
+  divider: tokens.line,
+  success: { main: tokens.success.fg, contrastText: '#FFFFFF', bg: tokens.success.bg },
+  warning: { main: tokens.warning.fg, contrastText: '#FFFFFF', bg: tokens.warning.bg },
+  error: { main: tokens.danger.fg, contrastText: '#FFFFFF', bg: tokens.danger.bg },
+  info: { main: tokens.forest, contrastText: '#FFFFFF' },
+}));
+
+export const darkTheme = createTheme(createSharedTheme({
+  mode: 'dark',
+  primary: {
+    main: darkTokens.forest,
+    dark: darkTokens.forestDark,
+    light: '#66BB6A',
+    contrastText: '#FFFFFF',
+  },
+  secondary: {
+    main: darkTokens.brass,
+    contrastText: '#000000',
+  },
+  background: {
+    default: darkTokens.paper,
+    paper: darkTokens.surface,
+  },
+  text: {
+    primary: darkTokens.ink,
+    secondary: darkTokens.inkSoft,
+  },
+  divider: darkTokens.line,
+  success: { main: darkTokens.success.fg, contrastText: '#000000', bg: darkTokens.success.bg },
+  warning: { main: darkTokens.warning.fg, contrastText: '#000000', bg: darkTokens.warning.bg },
+  error: { main: darkTokens.danger.fg, contrastText: '#000000', bg: darkTokens.danger.bg },
+  info: { main: darkTokens.forest, contrastText: '#000000' },
+}));
 
 // Kept so older imports keep working
 export const colors = {

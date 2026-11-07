@@ -41,7 +41,7 @@ const LoginPage = () => {
           gap: { xs: 0, md: 6 },
         }}
       >
-        <Wordmark light />
+        <Wordmark />
 
         <Box sx={{ display: { xs: "none", md: "block" }, maxWidth: 460 }}>
           <Typography component="p" sx={{ fontFamily: fonts.serif, fontWeight: 700, fontSize: "2.75rem", lineHeight: 1.15, letterSpacing: "-0.01em" }}>

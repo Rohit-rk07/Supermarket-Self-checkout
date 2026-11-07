@@ -2,6 +2,7 @@ import { Box, Typography } from '@mui/material';
 import { QRCodeSVG } from 'qrcode.react';
 import { tokens, fonts } from '../../theme/theme';
 import { formatMoney, getTotals, formatDateTime } from '../../utils/money';
+import logo from '../../assets/logo.png';
 
 // A torn paper edge: white teeth pointing down from the bottom of the receipt
 const TEETH =
@@ -81,15 +82,22 @@ const Receipt = ({ order, animate = false }) => {
         },
       }}
     >
+      <Box
+        component="img"
+        src={logo}
+        alt="Supermarket Self Checkout"
+        sx={{
+          display: 'block',
+          mx: 'auto',
+          height: 40,
+          width: 'auto',
+          maxWidth: 180,
+          mb: 0.5,
+        }}
+      />
       <Typography
         component="p"
-        sx={{ fontFamily: fonts.serif, fontWeight: 700, fontSize: '1.45rem', textAlign: 'center', lineHeight: 1.2 }}
-      >
-        Smart Checkout
-      </Typography>
-      <Typography
-        component="p"
-        sx={{ fontFamily: fonts.receipt, fontSize: '0.75rem', textAlign: 'center', color: tokens.inkSoft, mt: 0.25 }}
+        sx={{ fontFamily: fonts.receipt, fontSize: '0.75rem', textAlign: 'center', color: tokens.inkSoft }}
       >
         Self-checkout receipt
       </Typography>

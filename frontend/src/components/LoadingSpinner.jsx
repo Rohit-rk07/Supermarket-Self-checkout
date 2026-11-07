@@ -17,7 +17,7 @@ const LoadingSpinner = ({ message = "Loading..." }) => {
                 gap: 2.5
             }}
         >
-            <Wordmark sx={{ fontSize: '1.5rem' }} />
+            <Wordmark sx={{ height: 40 }} />
             <CircularProgress size={28} thickness={3} />
             <Typography color="text.secondary">{message}</Typography>
         </Box>

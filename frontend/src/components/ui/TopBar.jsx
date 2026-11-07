@@ -1,24 +1,24 @@
 import { Box, Typography, IconButton, Avatar, Button } from '@mui/material';
-import { ArrowBack } from '@mui/icons-material';
+import { ArrowBack, DarkMode, LightMode } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useSignInPrompt } from '../../context/SignInPrompt';
+import { useTheme } from '../../context/ThemeContext';
 import { fonts } from '../../theme/theme';
+import logo from '../../assets/logo.png';
 
-export const Wordmark = ({ light = false, sx }) => (
-  <Typography
-    component="span"
+export const Wordmark = ({ sx }) => (
+  <Box
+    component="img"
+    src={logo}
+    alt="Supermarket Self Checkout"
     sx={{
-      fontFamily: fonts.serif,
-      fontWeight: 700,
-      fontSize: '1.25rem',
-      letterSpacing: '-0.01em',
-      color: light ? '#F2F4EF' : 'text.primary',
+      height: 40,
+      width: 'auto',
+      maxWidth: 200,
       ...sx,
     }}
-  >
-    Smart Checkout
-  </Typography>
+  />
 );
 
 // The bar at the top of every signed-in screen: wordmark or back + title, and the account button
@@ -26,6 +26,7 @@ const TopBar = ({ title, backTo, right, hideAccount = false }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { promptSignIn } = useSignInPrompt();
+  const { mode, toggleTheme } = useTheme();
   const initial = (user?.name || user?.email || 'U').toString().trim()[0]?.toUpperCase();
 
   return (
@@ -69,6 +70,15 @@ const TopBar = ({ title, backTo, right, hideAccount = false }) => {
 
         <Box sx={{ flex: 1 }} />
         {right}
+
+        {/* Theme toggle button */}
+        <IconButton
+          aria-label="Toggle theme"
+          onClick={toggleTheme}
+          sx={{ ml: 0.5 }}
+        >
+          {mode === 'light' ? <DarkMode /> : <LightMode />}
+        </IconButton>
 
         {user && !hideAccount ? (
           <IconButton aria-label="Your account" onClick={() => navigate('/account')}>
