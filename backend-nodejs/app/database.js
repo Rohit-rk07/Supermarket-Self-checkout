@@ -5,7 +5,15 @@ let connectionRetries = 0;
 const MAX_RETRIES = 5;
 const RETRY_DELAY = 5000; // 5 seconds
 
+// On Vercel every warm instance keeps its own connections, so a smaller pool keeps the total under Atlas's limit
+const onVercel = Boolean(process.env.VERCEL);
+
 const connectDB = async () => {
+  // A warm serverless instance already has a connection: reuse it
+  if (mongoose.connection.readyState === 1) return true;
+  // A new attempt after an earlier failure starts its count again
+  connectionRetries = 0;
+
   // Optional: use specific DNS servers for the MongoDB Atlas SRV lookup.
   // Fixes "querySrv ECONNREFUSED" when the local resolver (e.g. 127.0.0.1) refuses SRV queries.
   // Set DNS_SERVERS=8.8.8.8,1.1.1.1 in .env. Read here because dotenv loads after imports.
@@ -25,9 +33,10 @@ const connectDB = async () => {
       
       await mongoose.connect(DATABASE_URL, {
         dbName: DB_NAME, // Explicitly set database name
-        serverSelectionTimeoutMS: Number(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS) || 30000,
-        maxPoolSize: Number(process.env.MONGODB_MAX_POOL_SIZE) || 50,
-        minPoolSize: Number(process.env.MONGODB_MIN_POOL_SIZE) || 5,
+        // A serverless request must not wait long: fail fast on Vercel so the shopper sees an error, not a hang
+        serverSelectionTimeoutMS: Number(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS) || (onVercel ? 8000 : 30000),
+        maxPoolSize: Number(process.env.MONGODB_MAX_POOL_SIZE) || (onVercel ? 5 : 50),
+        minPoolSize: Number(process.env.MONGODB_MIN_POOL_SIZE) || (onVercel ? 0 : 5),
         maxIdleTimeMS: 30000,
         socketTimeoutMS: 45000,
         connectTimeoutMS: 10000,

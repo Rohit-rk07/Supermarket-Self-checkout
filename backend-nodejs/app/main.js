@@ -41,6 +41,9 @@ if (!process.env.ADMIN_EMAILS) {
 }
 
 const app = express();
+// Behind Vercel (or Render) every request arrives through a proxy. Trusting one hop makes req.ip the shopper's real address,
+// so the rate limits count each person, not the proxy.
+app.set('trust proxy', 1);
 let isReady = false;
 let isDBConnecting = false;
 
