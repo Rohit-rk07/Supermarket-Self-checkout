@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import dns from 'dns';
+import { fixLegacyUserIndexes } from './utils/fixIndexes.js';
 
 let connectionRetries = 0;
 const MAX_RETRIES = 5;
@@ -7,6 +8,7 @@ const RETRY_DELAY = 5000; // 5 seconds
 
 // On Vercel every warm instance keeps its own connections, so a smaller pool keeps the total under Atlas's limit
 const onVercel = Boolean(process.env.VERCEL);
+let indexesChecked = false;
 
 const connectDB = async () => {
   // A warm serverless instance already has a connection: reuse it
@@ -49,6 +51,17 @@ const connectDB = async () => {
       console.log('✅ MongoDB Connected Successfully');
       console.log(`📊 Database: ${mongoose.connection.name}`);
       connectionRetries = 0; // Reset on success
+
+      // Repair old unique-phone indexes left by the OTP version (once per instance; never blocks start-up)
+      if (!indexesChecked) {
+        indexesChecked = true;
+        try {
+          const dropped = await fixLegacyUserIndexes();
+          if (dropped.length) console.log(`Fixed old user indexes: ${dropped.join(', ')}`);
+        } catch (indexError) {
+          console.error('Could not check user indexes:', indexError.message);
+        }
+      }
       return true;
     } catch (error) {
       connectionRetries++;

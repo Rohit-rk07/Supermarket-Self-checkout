@@ -15,6 +15,11 @@ const loadGoogleScript = () =>
     if (!existing) document.head.appendChild(script);
   });
 
+// Google wants initialize() called once per page. The button can be on the page more than once over time
+// (the sign-in pop-up, the sign-in page), so it is set up once and hands each sign-in to whichever button is showing.
+let initializedFor = null;
+let currentHandler = null;
+
 // Google's own "Continue with Google" button, with its loading and error messages.
 // Used on the sign-in page and in the sign-in pop-up. onSignedIn runs after the server accepted the sign-in.
 const GoogleSignInButton = ({ onSignedIn }) => {
@@ -45,19 +50,24 @@ const GoogleSignInButton = ({ onSignedIn }) => {
         await loadGoogleScript();
         if (cancelled) return;
 
-        window.google.accounts.id.initialize({
-          client_id: clientId,
-          callback: async ({ credential }) => {
-            setSigningIn(true);
-            try {
-              await loginRef.current(credential);
-              doneRef.current?.();
-            } catch {
-              // The message is shown from the auth context
-            }
-            setSigningIn(false);
-          },
-        });
+        // This button receives the next sign-in
+        currentHandler = async ({ credential }) => {
+          setSigningIn(true);
+          try {
+            await loginRef.current(credential);
+            doneRef.current?.();
+          } catch {
+            // The message is shown from the auth context
+          }
+          setSigningIn(false);
+        };
+        if (initializedFor !== clientId) {
+          window.google.accounts.id.initialize({
+            client_id: clientId,
+            callback: (response) => currentHandler?.(response),
+          });
+          initializedFor = clientId;
+        }
         window.google.accounts.id.renderButton(buttonRef.current, {
           theme: "outline",
           size: "large",
