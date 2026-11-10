@@ -14,6 +14,14 @@ describe('guest browsing', () => {
     assert.equal(res.body.data.barcode, product.barcode);
   });
 
+  test('the public scan answer never includes the stock count', async () => {
+    const product = await makeProduct({ price: 40, trackStock: true, stock: 7 });
+    const res = await api('GET', `/api/v1/scan/${product.barcode}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.data.stock, undefined);
+    assert.equal(res.body.data.trackStock, true);
+  });
+
   test('an unknown barcode is still a clean 404 for a visitor', async () => {
     const res = await api('GET', '/api/v1/scan/0000000000000');
     assert.equal(res.status, 404);

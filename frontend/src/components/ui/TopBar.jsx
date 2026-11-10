@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useSignInPrompt } from '../../context/SignInPrompt';
 import { useTheme } from '../../context/ThemeContext';
-import { fonts } from '../../theme/theme';
 import logo from '../../assets/logo.png';
 
 export const Wordmark = ({ sx }) => (
@@ -13,9 +12,13 @@ export const Wordmark = ({ sx }) => (
     src={logo}
     alt="Supermarket Self Checkout"
     sx={{
+      display: 'block',
       height: 40,
       width: 'auto',
       maxWidth: 200,
+      objectFit: 'contain',
+      // In a column layout the picture must keep its shape, not stretch across the row
+      alignSelf: 'flex-start',
       ...sx,
     }}
   />

@@ -42,8 +42,8 @@ export const getProductByBarcode = async (req, res, next) => {
         gstRate: taxFor(product).rate,
         taxInclusive: taxFor(product).inclusive,
         trackStock: product.trackStock === true,
-        category: product.category,
-        stock: product.stock
+        category: product.category
+        // The stock count is not sent: scanning is open to visitors, and only the shop should see how much is left
       },
       timestamp: new Date().toISOString()
     });

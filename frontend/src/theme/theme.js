@@ -255,7 +255,8 @@ export const darkTheme = createTheme(createSharedTheme({
     main: darkTokens.forest,
     dark: darkTokens.forestDark,
     light: '#66BB6A',
-    contrastText: '#FFFFFF',
+    // White on this bright green is too faint to read (2.8:1); dark text on it is 6.2:1
+    contrastText: '#0B1F15',
   },
   secondary: {
     main: darkTokens.brass,

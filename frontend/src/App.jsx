@@ -31,7 +31,8 @@ const AppContent = () => {
 
   return (
     <MuiThemeProvider theme={currentTheme}>
-      <CssBaseline />
+      {/* enableColorScheme makes scrollbars and form controls follow dark mode too */}
+      <CssBaseline enableColorScheme />
       <Router>
         <AuthProvider>
           <CartProvider>
