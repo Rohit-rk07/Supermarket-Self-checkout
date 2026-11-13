@@ -86,7 +86,9 @@ export const AuthProvider = ({ children }) => {
             });
             const data = await response.json();
             if (!response.ok) {
-                throw new Error(data.message || "Sign-in failed. Please try again.");
+                // While developing, the server also says why it failed (data.detail); the live site never sends it
+                const why = import.meta.env.DEV && data.detail ? ` (${data.detail})` : "";
+                throw new Error((data.message || "Sign-in failed. Please try again.") + why);
             }
 
             const signedIn = toUser(data.data.user, data.data.token);

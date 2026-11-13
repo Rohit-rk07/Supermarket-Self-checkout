@@ -111,8 +111,13 @@ export const googleLogin = async (req, res) => {
       data: { token, user: publicUser(user) }
     });
   } catch (error) {
-    logger.error('Google login error', { error: error.message });
-    res.status(500).json({ success: false, message: 'Sign-in failed. Please try again.' });
+    logger.error('Google login error', { error: error.message, stack: error.stack });
+    res.status(500).json({
+      success: false,
+      message: 'Sign-in failed. Please try again.',
+      // While developing, show the cause so it can be fixed; shoppers on the live site never see it
+      ...(process.env.NODE_ENV === 'production' ? {} : { detail: error.message })
+    });
   }
 };
 
